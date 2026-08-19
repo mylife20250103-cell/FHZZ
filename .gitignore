@@ -1,0 +1,13 @@
+# 本地临时目录 / 测试输出，不要放 OneDrive
+temp/
+logs/
+__pycache__/
+.pytest_cache/
+*.pyc
+build/
+dist/
+.venv/
+.env
+.env.*
+*.egg-info/
+
