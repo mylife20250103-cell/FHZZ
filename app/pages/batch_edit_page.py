@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -19,12 +21,27 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
 )
 
+from app.invoice_config import MERGE_RESULT_ROOT, QUICK_MERGE_ROOT
 from app.services.batch_modify_service import (
     apply_modifications,
+    looks_like_merge_output,
+    looks_like_source_invoice,
     normalize_cell_address,
     preview_files,
 )
 from app.workers import TaskWorker
+
+CHECKBOX_STYLE = """
+QCheckBox {
+    margin: 0px;
+    padding: 0px;
+    background: transparent;
+}
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+}
+"""
 
 
 class BatchEditPage(QWidget):
@@ -43,7 +60,10 @@ class BatchEditPage(QWidget):
 
         title = QLabel("批量修改单元格值")
         title.setObjectName("PageTitle")
-        subtitle = QLabel("优先读取 _SystemMeta.ChannelCell，批量修改发票发货渠道")
+        subtitle = QLabel(
+            "默认打开「合并结果」。快越达合并文件是 KYD_仓库_N箱.xls，"
+            "不经 Excel，避免上传失败"
+        )
         subtitle.setObjectName("PageSubtitle")
         root.addWidget(title)
         root.addWidget(subtitle)
@@ -65,7 +85,7 @@ class BatchEditPage(QWidget):
 
         controls.addWidget(QLabel("手工单元格："))
         self.cell_edit = QLineEdit()
-        self.cell_edit.setPlaceholderText("无 _SystemMeta 时使用，例如 B2")
+        self.cell_edit.setPlaceholderText("快越达合并结果默认 B4")
         self.cell_edit.setMaximumWidth(140)
         self.cell_edit.editingFinished.connect(self.refresh_inputs)
         controls.addWidget(self.cell_edit)
@@ -76,11 +96,6 @@ class BatchEditPage(QWidget):
         self.value_edit.textChanged.connect(self.refresh_inputs)
         controls.addWidget(self.value_edit)
 
-        self.select_all_button = QPushButton("全选 / 取消全选")
-        self.select_all_button.setObjectName("SecondaryButton")
-        self.select_all_button.clicked.connect(self.toggle_select_all)
-        controls.addWidget(self.select_all_button)
-
         self.run_button = QPushButton("批量执行")
         self.run_button.setStyleSheet(
             "QPushButton { background:#F58A07; color:white; border:none;"
@@ -90,7 +105,7 @@ class BatchEditPage(QWidget):
         controls.addWidget(self.run_button)
         layout.addLayout(controls)
 
-        self.status = QLabel("选择 Excel 文件或文件夹后自动识别 ChannelCell")
+        self.status = QLabel("请选择「合并结果」里的 KYD_仓库_N箱.xls，不要选全部发票汇总里的源发票")
         self.status.setObjectName("SecondaryText")
         layout.addWidget(self.status)
         root.addWidget(card)
@@ -102,31 +117,77 @@ class BatchEditPage(QWidget):
         self.table = QTableWidget()
         self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels(
-            ["勾选", "文件名", "CarrierCode", "目标单元格", "当前值", "新值", "状态"]
+            ["", "文件名", "CarrierCode", "目标单元格", "当前值", "新值", "状态"]
         )
         self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, 44)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.horizontalHeader().sectionClicked.connect(
-            self._on_header_clicked
-        )
+        self._install_header_checkbox()
         table_layout.addWidget(self.table)
         root.addWidget(table_card, 1)
+
+    def _install_header_checkbox(self):
+
+        header = self.table.horizontalHeader()
+        self.header_check = QCheckBox(header)
+        self.header_check.setToolTip("全选 / 取消全选")
+        self.header_check.setTristate(True)
+        self.header_check.setStyleSheet(CHECKBOX_STYLE)
+        self.header_check.setCursor(Qt.PointingHandCursor)
+        self.header_check.setFixedSize(16, 16)
+        self.header_check.clicked.connect(self._on_header_check_clicked)
+        header.sectionResized.connect(self._place_header_checkbox)
+        header.geometriesChanged.connect(self._place_header_checkbox)
+        self.table.horizontalScrollBar().valueChanged.connect(
+            self._place_header_checkbox
+        )
+        self._place_header_checkbox()
+
+    def _place_header_checkbox(self, *_args):
+
+        header = self.table.horizontalHeader()
+        size = 16
+        x = header.sectionViewportPosition(0)
+        width = header.sectionSize(0)
+        y = max(0, (header.height() - size) // 2)
+        self.header_check.setGeometry(
+            x + (width - size) // 2,
+            y,
+            size,
+            size,
+        )
+
+    def _picker_start_dir(self) -> str:
+
+        if MERGE_RESULT_ROOT.exists():
+            today = MERGE_RESULT_ROOT / datetime.now().strftime("%Y%m%d")
+            if today.exists():
+                return str(today)
+            return str(MERGE_RESULT_ROOT)
+        if QUICK_MERGE_ROOT.exists():
+            return str(QUICK_MERGE_ROOT)
+        return ""
 
     def choose_files(self):
 
         files, _ = QFileDialog.getOpenFileNames(
             self,
-            "选择发票 Excel",
-            "",
-            "Excel (*.xlsx)",
+            "选择合并后的发票",
+            self._picker_start_dir(),
+            "Excel (*.xlsx *.xls)",
         )
         if files:
             self.load_paths([Path(item) for item in files])
 
     def choose_folder(self):
 
-        directory = QFileDialog.getExistingDirectory(self, "选择文件夹")
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "选择合并结果文件夹",
+            self._picker_start_dir(),
+        )
         if directory:
             self.load_paths([Path(directory)])
 
@@ -139,7 +200,21 @@ class BatchEditPage(QWidget):
             manual_cell=self.cell_edit.text().strip(),
         )
         self.render_rows()
-        self.status.setText(f"已加载 {len(self.rows)} 个文件")
+        merge_count = sum(
+            1 for row in self.rows if looks_like_merge_output(Path(row.path))
+        )
+        source_count = sum(
+            1 for row in self.rows if looks_like_source_invoice(Path(row.path))
+        )
+        if source_count and not merge_count:
+            self.status.setText(
+                f"已加载 {len(self.rows)} 个源发票，改这些不会更新「合并结果」里的文件。"
+                "请改选 发票系统\\合并结果 下的 KYD_仓库_N箱.xls"
+            )
+        elif merge_count:
+            self.status.setText(f"已加载 {len(self.rows)} 个合并结果")
+        else:
+            self.status.setText(f"已加载 {len(self.rows)} 个文件")
 
     def _manual_cell(self) -> str:
 
@@ -163,23 +238,40 @@ class BatchEditPage(QWidget):
             if not row.cell and manual_cell:
                 row.cell = manual_cell
 
-    def toggle_select_all(self):
+    def toggle_select_all(self, selected: bool | None = None):
 
         if not self.rows:
             return
 
-        all_selected = all(row.selected for row in self.rows)
-        new_state = not all_selected
+        if selected is None:
+            selected = not all(row.selected for row in self.rows)
 
         for row in self.rows:
-            row.selected = new_state
+            row.selected = selected
 
         self.render_rows()
 
-    def _on_header_clicked(self, section: int):
+    def _on_header_check_clicked(self):
 
-        if section == 0:
-            self.toggle_select_all()
+        select_all = not all(row.selected for row in self.rows)
+        self.toggle_select_all(select_all)
+
+    def _sync_header_check(self):
+
+        if not hasattr(self, "header_check"):
+            return
+
+        self.header_check.blockSignals(True)
+        if not self.rows:
+            self.header_check.setCheckState(Qt.Unchecked)
+        elif all(row.selected for row in self.rows):
+            self.header_check.setCheckState(Qt.Checked)
+        elif any(row.selected for row in self.rows):
+            self.header_check.setCheckState(Qt.PartiallyChecked)
+        else:
+            self.header_check.setCheckState(Qt.Unchecked)
+        self.header_check.blockSignals(False)
+        self._place_header_checkbox()
 
     def render_rows(self):
 
@@ -190,10 +282,17 @@ class BatchEditPage(QWidget):
             row.new_value = new_value
             check = QCheckBox()
             check.setChecked(row.selected)
+            check.setStyleSheet(CHECKBOX_STYLE)
+            check.setFixedSize(16, 16)
             check.stateChanged.connect(
                 lambda state, i=index: self._set_selected(i, state)
             )
-            self.table.setCellWidget(index, 0, check)
+            cell = QWidget()
+            cell_layout = QHBoxLayout(cell)
+            cell_layout.setContentsMargins(0, 0, 0, 0)
+            cell_layout.setAlignment(Qt.AlignCenter)
+            cell_layout.addWidget(check)
+            self.table.setCellWidget(index, 0, cell)
             values = [
                 row.file_name,
                 row.carrier_code,
@@ -203,12 +302,18 @@ class BatchEditPage(QWidget):
                 row.status,
             ]
             for column, value in enumerate(values, start=1):
-                self.table.setItem(index, column, QTableWidgetItem(str(value)))
+                item = QTableWidgetItem(str(value))
+                if column == 1:
+                    item.setToolTip(row.path)
+                self.table.setItem(index, column, item)
+
+        self._sync_header_check()
 
     def _set_selected(self, index: int, state: int):
 
         if 0 <= index < len(self.rows):
             self.rows[index].selected = bool(state)
+            self._sync_header_check()
 
     def run_modify(self):
 
@@ -243,6 +348,30 @@ class BatchEditPage(QWidget):
         if not selected:
             QMessageBox.warning(self, "未勾选", "请至少勾选一个文件。")
             return
+
+        source_rows = [
+            row.file_name
+            for row in selected
+            if looks_like_source_invoice(Path(row.path))
+        ]
+        if source_rows and not any(
+            looks_like_merge_output(Path(row.path)) for row in selected
+        ):
+            answer = QMessageBox.question(
+                self,
+                "这些不是合并结果",
+                "当前勾选的是源发票（例如 IND9_FBA..._快越达发票.xlsx），"
+                "改它们不会更新「合并结果」里的 KYD_IND9_1箱.xls。\n\n"
+                "请到：\n"
+                r"发票系统\合并结果\日期\批次号"
+                "\n选择 KYD_仓库_N箱.xls 后再执行。\n\n"
+                "仍要修改这些源发票吗？\n\n"
+                + "\n".join(source_rows[:8]),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
 
         if self._worker and self._worker.isRunning():
             QMessageBox.warning(self, "请等待", "当前已有任务正在执行。")

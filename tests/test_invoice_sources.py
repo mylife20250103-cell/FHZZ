@@ -5,6 +5,7 @@ from pathlib import Path
 from app.services.invoice_scan_service import (
     load_registered_sources,
     load_source_entries,
+    resolve_invoice_scan_directories,
     scan_original_invoices,
 )
 
@@ -77,6 +78,33 @@ def test_scan_does_not_depend_on_inquiry(tmp_path, monkeypatch):
     assert "询价" not in joined
     assert "没有扫描到任何发票 .xlsx" in joined
     assert result.passed is False
+
+
+def test_resolve_invoice_scan_directories_separates_source_and_extra():
+
+    source = Path(r"D:\invoices\mc\未合并")
+    extra = [
+        Path(r"D:\invoices\mc\20260820"),
+        Path(r"D:\invoices\kyd\20260820"),
+    ]
+
+    assert resolve_invoice_scan_directories(
+        source_directory=source,
+        extra_directories=extra,
+        extra_only=False,
+    ) == [source]
+
+    assert resolve_invoice_scan_directories(
+        source_directory=source,
+        extra_directories=extra,
+        extra_only=True,
+    ) == extra
+
+    assert resolve_invoice_scan_directories(
+        source_directory=None,
+        extra_directories=extra,
+        extra_only=False,
+    ) == []
 
 
 def _write_meta_invoice(path: Path, **fields):

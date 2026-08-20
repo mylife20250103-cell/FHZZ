@@ -328,6 +328,21 @@ def load_registered_sources() -> list[Path]:
 # 收集 Excel
 # =========================================================
 
+def resolve_invoice_scan_directories(
+    *,
+    source_directory: Path | None,
+    extra_directories: list[Path],
+    extra_only: bool,
+) -> list[Path]:
+    """原始扫描只用当前物流商扫描源；临时追加扫描只用手动选择的目录。"""
+
+    if extra_only:
+        return list(extra_directories)
+    if source_directory is None:
+        return []
+    return [source_directory]
+
+
 def collect_invoice_files(
     directories: list[Path],
 ) -> list[Path]:

@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.invoice_config import is_excel_junk_file
-from app.services.inquiry_service import collect_inquiry_files
+from app.services.inquiry_service import (
+    collect_inquiry_files,
+    resolve_inquiry_scan_directories,
+)
 
 
 def test_is_excel_junk_file():
@@ -32,3 +35,24 @@ def test_collect_inquiry_skips_excel_tmp(tmp_path):
     assert files == [real]
     assert not junk.exists()
     assert not lock.exists()
+
+
+def test_resolve_inquiry_scan_directories_separates_daily_and_extra():
+
+    default = Path(r"D:\inquiry\20260820")
+    extra = [
+        Path(r"D:\manual\GYR2"),
+        Path(r"D:\manual\LAX9"),
+    ]
+
+    assert resolve_inquiry_scan_directories(
+        default_directory=default,
+        extra_directories=extra,
+        extra_only=False,
+    ) == [default]
+
+    assert resolve_inquiry_scan_directories(
+        default_directory=default,
+        extra_directories=extra,
+        extra_only=True,
+    ) == extra

@@ -34,6 +34,7 @@ from app.inquiry_config import (
 from app.services.inquiry_service import (
     ScanResult,
     generate_inquiry_summary,
+    resolve_inquiry_scan_directories,
     scan_inquiry_batch,
 )
 
@@ -178,6 +179,43 @@ class InquiryPage(QWidget):
 
         controls.addWidget(
             add_button
+        )
+
+        self.extra_scan_button = QPushButton(
+            "扫描临时追加目录"
+        )
+
+        self.extra_scan_button.setEnabled(
+            False
+        )
+
+        self.extra_scan_button.setStyleSheet(
+            """
+            QPushButton {
+                background:#16A765;
+                color:white;
+                border:none;
+                border-radius:6px;
+                padding:9px 18px;
+                font-weight:600;
+            }
+
+            QPushButton:hover {
+                background:#13955A;
+            }
+
+            QPushButton:disabled {
+                background:#C8D0D9;
+            }
+            """
+        )
+
+        self.extra_scan_button.clicked.connect(
+            self.scan_extra
+        )
+
+        controls.addWidget(
+            self.extra_scan_button
         )
 
         self.scan_button = QPushButton(
@@ -501,9 +539,16 @@ class InquiryPage(QWidget):
 
     def add_directory(self):
 
+        start_dir = (
+            str(INQUIRY_SOURCE_ROOT)
+            if INQUIRY_SOURCE_ROOT.exists()
+            else ""
+        )
+
         directory = QFileDialog.getExistingDirectory(
             self,
             "临时追加询价目录",
+            start_dir,
         )
 
         if not directory:
@@ -524,6 +569,9 @@ class InquiryPage(QWidget):
         self.extra_list.setVisible(
             bool(self.extra_directories)
         )
+        self.extra_scan_button.setEnabled(
+            bool(self.extra_directories)
+        )
 
     # ==========================================
     # 扫描
@@ -531,16 +579,52 @@ class InquiryPage(QWidget):
 
     def scan(self):
 
-        date_id = (
-            self.current_date_id()
+        self._run_scan(
+            resolve_inquiry_scan_directories(
+                default_directory=self.default_directory(),
+                extra_directories=self.extra_directories,
+                extra_only=False,
+            ),
+            empty_message="当天询价目录不存在，请先确认日期。",
         )
 
-        directories = [
-            self.default_directory()
-        ]
+    def scan_extra(self):
 
-        directories.extend(
-            self.extra_directories
+        if not self.extra_directories:
+
+            QMessageBox.information(
+                self,
+                "扫描临时追加目录",
+                "请先点击「＋ 临时追加目录」，选择要统计的询价路径。",
+            )
+            return
+
+        self._run_scan(
+            resolve_inquiry_scan_directories(
+                default_directory=self.default_directory(),
+                extra_directories=self.extra_directories,
+                extra_only=True,
+            ),
+            empty_message="临时追加的目录里没有找到询价明细。",
+        )
+
+    def _run_scan(
+        self,
+        directories: list[Path],
+        empty_message: str,
+    ):
+
+        if not directories:
+
+            QMessageBox.information(
+                self,
+                "扫描",
+                empty_message,
+            )
+            return
+
+        date_id = (
+            self.current_date_id()
         )
 
         self.generate_button.setEnabled(

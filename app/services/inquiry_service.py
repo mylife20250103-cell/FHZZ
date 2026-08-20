@@ -95,6 +95,19 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def resolve_inquiry_scan_directories(
+    *,
+    default_directory: Path,
+    extra_directories: list[Path],
+    extra_only: bool,
+) -> list[Path]:
+    """当天扫描只用默认日期目录；临时追加扫描只用手动选择的目录。"""
+
+    if extra_only:
+        return list(extra_directories)
+    return [default_directory]
+
+
 def collect_inquiry_files(
     directories: list[Path],
 ) -> list[Path]:

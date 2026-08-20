@@ -364,6 +364,37 @@ def template_sheet_span(book: bytes | bytearray) -> tuple[int, int]:
     return bofs[1], bofs[2]
 
 
+def _decode_boundsheet_name(payload: bytes) -> str:
+    if len(payload) < 2:
+        return ""
+    count = payload[0]
+    flags = payload[1]
+    if flags & 0x01:
+        return payload[2 : 2 + count * 2].decode("utf-16le", errors="replace")
+    return payload[2 : 2 + count].decode("latin-1", errors="replace")
+
+
+def sheet_span_by_name(book: bytes | bytearray, sheet_name: str) -> tuple[int, int]:
+    if not sheet_name or sheet_name == "模板":
+        return template_sheet_span(book)
+
+    bofs = sheet_bof_positions(book)
+    sheet_bofs = bofs[1:]
+    names = [
+        _decode_boundsheet_name(payload[6:])
+        for _pos, rec, ln, payload in iter_biff(book)
+        if rec == REC_BOUNDSHEET and ln >= 8
+    ]
+    if sheet_name not in names:
+        raise _error(f"找不到工作表【{sheet_name}】")
+    index = names.index(sheet_name)
+    if index >= len(sheet_bofs):
+        raise _error(f"工作表【{sheet_name}】位置异常")
+    start = sheet_bofs[index]
+    end = sheet_bofs[index + 1] if index + 1 < len(sheet_bofs) else len(book)
+    return start, end
+
+
 def update_boundsheet_offsets(book: bytearray) -> None:
     bofs = sheet_bof_positions(book)
     sheet_bofs = bofs[1:]
@@ -1069,3 +1100,67 @@ def fill_kyd_template(
     update_boundsheet_offsets(book)
     write_workbook_stream(dest, bytes(book))
     write_named_stream(dest, "ETCellImageData", _build_et_cell_image_data())
+
+
+def _append_sst_strings(book: bytearray, added: list[str], new_total: int) -> None:
+    if not added and new_total <= 0:
+        return
+    sst_start, sst_end, sst_payload = _sst_span(book)
+    orig_total, orig_unique = struct.unpack_from("<II", sst_payload, 0)
+    book[sst_start + 4 : sst_start + 8] = struct.pack(
+        "<I",
+        new_total if new_total else orig_total,
+    )
+    book[sst_start + 8 : sst_start + 12] = struct.pack(
+        "<I",
+        orig_unique + len(added),
+    )
+    if not added:
+        return
+    extra = bytearray()
+    current = b""
+    for text in added:
+        encoded = _encode_sst_string(text)
+        if current and len(current) + len(encoded) > MAX_BIFF:
+            extra.extend(rec_bytes(REC_CONTINUE, current))
+            current = encoded
+        else:
+            current += encoded
+    if current:
+        extra.extend(rec_bytes(REC_CONTINUE, current))
+    replace_bytes(book, sst_end, sst_end, bytes(extra))
+
+
+def set_kyd_text_cell(
+    path: Path,
+    sheet_name: str,
+    row: int,
+    col: int,
+    value: str,
+) -> None:
+    """
+    只改 Workbook 流里的一个文本单元格，不经 Excel / WPS。
+    用于合并后的快越达 .xls，避免另存出 CompObj 导致上传失败。
+    """
+
+    import xlrd
+
+    text = "" if value is None else str(value)
+    wb = xlrd.open_workbook(str(path), on_demand=True, formatting_info=True)
+    strings = list(wb._sharedstrings or [])
+    wb.release_resources()
+
+    book = bytearray(read_workbook_stream(path))
+    added: list[str] = []
+    index = sst_index(strings, text, added)
+    start, end = sheet_span_by_name(book, sheet_name)
+    _set_labelsst(book, start, end, row, col, index)
+
+    if added:
+        _sst_start, _sst_end, sst_payload = _sst_span(book)
+        orig_total = struct.unpack_from("<I", sst_payload, 0)[0]
+        _append_sst_strings(book, added, orig_total)
+        _rebuild_index_dbcell(book)
+        update_boundsheet_offsets(book)
+
+    write_workbook_stream(path, bytes(book))

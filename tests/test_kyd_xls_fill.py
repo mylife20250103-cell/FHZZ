@@ -196,3 +196,80 @@ def test_merge_group_copies_central_template(tmp_path, monkeypatch):
     assert dest.exists()
     assert adapter.validate_output(dest, group) == []
 
+
+def _filled_kyd_xls(dest):
+    copy_template(KYD_TEMPLATE_PATH, dest)
+    fill_kyd_template(
+        dest,
+        channel="K18美西稳速达-卡派-包税",
+        warehouse="GYR2",
+        carton_count=1,
+        lines=[
+            KydLine(
+                cells=[
+                    "FBA33U000001",
+                    "C",
+                    "daisy necklace",
+                    "雏菊项链",
+                    1,
+                    0.8,
+                    70,
+                    70,
+                    56.0,
+                    7113119090,
+                    "无",
+                    "无",
+                    "alloy",
+                    "日用",
+                    16,
+                    50,
+                    40,
+                    40,
+                    None,
+                    None,
+                ],
+                image_bytes=MINI_JPEG,
+                image_kind="jpeg",
+            )
+        ],
+    )
+
+
+def test_set_kyd_text_cell_does_not_add_compobj(tmp_path):
+
+    if not KYD_TEMPLATE_PATH.exists():
+        return
+
+    import olefile
+    import xlrd
+
+    from app.services.kyd_xls_io import set_kyd_text_cell
+
+    dest = tmp_path / "KYD_GYR2_1箱.xls"
+    _filled_kyd_xls(dest)
+    set_kyd_text_cell(dest, "模板", 3, 1, "K18美西顺丰速运-卡派")
+
+    ole = olefile.OleFileIO(str(dest))
+    streams = ["/".join(item) for item in ole.listdir()]
+    book = ole.openstream(["Workbook"]).read()
+    ole.close()
+    assert not any("CompObj" in name for name in streams)
+
+    pics = 0
+    import struct
+    from app.services.kyd_xls_io import iter_biff
+
+    for _pos, rec, ln, payload in iter_biff(book):
+        if rec == 0x005D and ln >= 8:
+            _ft, _cb, ot, _oid = struct.unpack_from("<HHHH", payload, 0)
+            if ot == 8:
+                pics += 1
+    assert pics >= 1
+
+    wb = xlrd.open_workbook(str(dest))
+    ws = wb.sheet_by_name("模板")
+    assert str(ws.cell_value(3, 1)).strip() == "K18美西顺丰速运-卡派"
+    assert str(ws.cell_value(4, 1)).strip() == "GYR2"
+    assert str(ws.cell_value(29, 0)).strip() == "FBA33U000001"
+
+

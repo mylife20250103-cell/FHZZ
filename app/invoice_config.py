@@ -37,6 +37,11 @@ CURRENT_CONFIG_INI = (
 )
 
 
+INVOICE_MANUAL_SCAN_ROOT = (
+    SYSTEM_ROOT.parent / "物流商发票"
+)
+
+
 QUICK_MERGE_ROOT = (
     SYSTEM_ROOT / "全部发票汇总"
 )

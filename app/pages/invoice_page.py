@@ -43,11 +43,13 @@ from app.services.batch_service import (
     official_output_dir,
     scan_result_from_snapshot,
 )
+from app.invoice_config import INVOICE_MANUAL_SCAN_ROOT
 from app.services.invoice_content_merge_service import run_content_merge
 from app.services.invoice_prepare_service import run_prepare_merge
 from app.services.invoice_result_check_service import run_result_check
 from app.services.invoice_scan_service import (
     load_source_entries,
+    resolve_invoice_scan_directories,
     scan_original_invoices,
 )
 from app.workers import TaskWorker
@@ -302,6 +304,26 @@ class InvoicePage(QWidget):
 
         actions.addWidget(
             add_button
+        )
+
+        self.extra_scan_button = QPushButton(
+            "扫描临时追加目录"
+        )
+
+        self.extra_scan_button.setObjectName(
+            "SecondaryButton"
+        )
+
+        self.extra_scan_button.setEnabled(
+            False
+        )
+
+        self.extra_scan_button.clicked.connect(
+            self.start_extra_scan
+        )
+
+        actions.addWidget(
+            self.extra_scan_button
         )
 
         self.rescan_button = QPushButton(
@@ -719,7 +741,7 @@ class InvoicePage(QWidget):
             )
 
             extra_text = (
-                f"，另有 {extra_count} 个临时目录"
+                f"，已追加 {extra_count} 个临时目录"
                 if extra_count
                 else ""
             )
@@ -749,13 +771,31 @@ class InvoicePage(QWidget):
                 f"[临时] {path}"
             )
 
+        self._refresh_extra_scan_button()
+
+    def _refresh_extra_scan_button(self, busy: bool = False):
+
+        if not hasattr(self, "extra_scan_button"):
+            return
+
+        self.extra_scan_button.setEnabled(
+            (not busy) and bool(self.extra_directories)
+        )
+
     def add_directory(self):
+
+        start_dir = (
+            str(INVOICE_MANUAL_SCAN_ROOT)
+            if INVOICE_MANUAL_SCAN_ROOT.exists()
+            else ""
+        )
 
         directory = (
             QFileDialog
             .getExistingDirectory(
                 self,
                 "临时追加原始发票目录",
+                start_dir,
             )
         )
 
@@ -899,6 +939,7 @@ class InvoicePage(QWidget):
         self.open_merged_button.setEnabled(not busy)
         self.source_combo.setEnabled(not busy)
         self.date_edit.setEnabled(not busy)
+        self._refresh_extra_scan_button(busy=busy)
 
         if busy and text:
             self.status_label.setText(text)
@@ -996,6 +1037,45 @@ class InvoicePage(QWidget):
 
     def start_scan(self):
 
+        entry = self.selected_source()
+        self._start_scan_directories(
+            resolve_invoice_scan_directories(
+                source_directory=entry.path if entry else None,
+                extra_directories=self.extra_directories,
+                extra_only=False,
+            ),
+            empty_message=(
+                "请先选择一个物流商扫描源。"
+            ),
+        )
+
+    def start_extra_scan(self):
+
+        if not self.extra_directories:
+
+            QMessageBox.warning(
+                self,
+                "扫描临时追加目录",
+                "请先点击「＋ 临时追加目录」，"
+                "选择要扫描的发票路径。",
+            )
+            return
+
+        self._start_scan_directories(
+            resolve_invoice_scan_directories(
+                source_directory=None,
+                extra_directories=self.extra_directories,
+                extra_only=True,
+            ),
+            empty_message="请先临时追加目录。",
+        )
+
+    def _start_scan_directories(
+        self,
+        directories: list[Path],
+        empty_message: str,
+    ):
+
         if self._worker is not None and self._worker.isRunning():
 
             QMessageBox.warning(
@@ -1006,24 +1086,12 @@ class InvoicePage(QWidget):
 
             return
 
-        entry = self.selected_source()
-
-        directories = []
-
-        if entry is not None:
-            directories.append(entry.path)
-
-        directories.extend(
-            self.extra_directories
-        )
-
         if not directories:
 
             QMessageBox.warning(
                 self,
                 "没有扫描目录",
-                "请先选择一个物流商扫描源，"
-                "或临时追加目录。",
+                empty_message,
             )
 
             return
