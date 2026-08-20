@@ -559,7 +559,9 @@ def list_official_xlsx(record: BatchRecord) -> list[Path]:
 
     return [
         path
-        for path in sorted(directory.glob("*.xlsx"))
+        for path in sorted(
+            list(directory.glob("*.xlsx")) + list(directory.glob("*.xls"))
+        )
         if not path.name.startswith("~$")
         and not path.name.startswith(".__")
     ]
@@ -577,8 +579,18 @@ def missing_official_outputs(record: BatchRecord) -> list[Path]:
     plan = read_json(plan_path)
     missing = []
 
+    from app.services.invoice_adapters import get_adapter
+
     for group in plan.get("Groups", []):
         path = Path(group.get("planned_output_path", ""))
+        try:
+            adapter = get_adapter(
+                group.get("carrier_code", ""),
+                group.get("template_version", "1.0"),
+            )
+            path = path.with_suffix(adapter.output_extension())
+        except Exception:
+            pass
         if not path.exists():
             missing.append(path)
 
@@ -690,15 +702,15 @@ def complete_batch(record: BatchRecord) -> BatchRecord:
         if not old_dir.exists():
             continue
 
-        for xlsx in old_dir.glob("*.xlsx"):
-            if xlsx.name.startswith("~$"):
+        for old in list(old_dir.glob("*.xlsx")) + list(old_dir.glob("*.xls")):
+            if old.name.startswith("~$"):
                 continue
             try:
-                xlsx.unlink()
+                old.unlink()
             except OSError as exc:
                 log_event(
                     "batch",
-                    f"未能删除旧结果 {xlsx.name}：{exc}",
+                    f"未能删除旧结果 {old.name}：{exc}",
                     level="WARNING",
                     batch_id=record.batch_id,
                     stage="7",

@@ -47,6 +47,13 @@ MERGE_RESULT_ROOT = (
 )
 
 
+KYD_TEMPLATE_PATH = (
+    SYSTEM_ROOT
+    / "模板"
+    / "快越达发票模版.xls"
+)
+
+
 LOCAL_ROOT = Path(r"D:\InvoiceMergeSystem")
 
 LOG_ROOT = LOCAL_ROOT / "logs"
@@ -65,3 +72,30 @@ EXCLUDE_DIR_NAMES = {
     "历史归档",
     "临时",
 }
+
+
+def is_excel_junk_file(path: Path) -> bool:
+    """
+    Excel / OneDrive 保存时会留下锁文件和临时副本，
+    不能当成正式询价单或发票。
+    """
+
+    name = path.name
+    if name.startswith("~$"):
+        return True
+    if name.startswith(".~tmp"):
+        return True
+    if name.startswith(".__"):
+        return True
+    return False
+
+
+def try_remove_excel_junk(path: Path) -> bool:
+
+    if not is_excel_junk_file(path):
+        return False
+    try:
+        path.unlink()
+        return True
+    except OSError:
+        return False

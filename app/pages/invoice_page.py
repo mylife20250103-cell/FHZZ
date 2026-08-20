@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -39,6 +40,7 @@ from app.services.batch_service import (
     ensure_batch_after_first_scan,
     load_batch,
     missing_official_outputs,
+    official_output_dir,
     scan_result_from_snapshot,
 )
 from app.services.invoice_content_merge_service import run_content_merge
@@ -335,6 +337,20 @@ class InvoicePage(QWidget):
         )
 
         actions.addStretch()
+
+        self.open_merged_button = QPushButton(
+            "打开已合并发票"
+        )
+        self.open_merged_button.setObjectName(
+            "SecondaryButton"
+        )
+        self.open_merged_button.clicked.connect(
+            self.open_merged_invoices
+        )
+        self.open_merged_button.setVisible(False)
+        actions.addWidget(
+            self.open_merged_button
+        )
 
         self.primary_button = QPushButton(
             "开始原始扫描"
@@ -852,6 +868,9 @@ class InvoicePage(QWidget):
         self.rescan_button.setVisible(
             self.current_batch is not None
         )
+        self.open_merged_button.setVisible(
+            self.merged_invoice_dir() is not None
+        )
 
     def on_primary_clicked(self):
 
@@ -877,6 +896,7 @@ class InvoicePage(QWidget):
         self.primary_button.setEnabled(not busy)
         self.rescan_button.setEnabled(not busy)
         self.reset_button.setEnabled(not busy)
+        self.open_merged_button.setEnabled(not busy)
         self.source_combo.setEnabled(not busy)
         self.date_edit.setEnabled(not busy)
 
@@ -1307,36 +1327,60 @@ class InvoicePage(QWidget):
             return
 
         self.apply_batch(record)
-
         warning = record.status_payload.get("CleanupWarning", "")
+        self._notify_batch_completed(record, extra=warning)
 
-        if warning:
+    def merged_invoice_dir(self) -> Path | None:
+
+        if self.current_batch is None:
+            return None
+        directory = official_output_dir(self.current_batch)
+        if directory.exists():
+            return directory
+        return None
+
+    def open_merged_invoices(self):
+
+        directory = self.merged_invoice_dir()
+        if directory is None:
+            QMessageBox.warning(
+                self,
+                "找不到目录",
+                "还没有合并结果目录。请确认内容合并已经完成。",
+            )
+            return
+        try:
+            os.startfile(str(directory))
+        except Exception as exc:
+            QMessageBox.critical(self, "打开失败", str(exc))
+
+    def _notify_batch_completed(self, record: BatchRecord, extra: str = ""):
+
+        if extra:
             self._show_pass(
                 f"COMPLETED｜{record.batch_id} 已完成。"
                 "最终发票已保留；快速合并临时目录未完全删掉。"
             )
-            QMessageBox.information(
-                self,
-                "Batch 已完成",
-                (
-                    f"{record.batch_id} 已锁定，不可再修改。\n\n"
-                    "最终发票在「合并结果」目录。\n"
-                    "快速合并临时目录可能被 Excel 或 OneDrive 占用，"
-                    "稍后可手动删除：\n\n"
-                    f"{warning}"
-                ),
+            body = (
+                f"{record.batch_id} 已锁定，不可再修改。\n\n"
+                "最终发票在「合并结果」目录。\n"
+                "快速合并临时目录可能被 Excel 或 OneDrive 占用，"
+                "稍后可手动删除：\n\n"
+                f"{extra}"
             )
-            return
+        else:
+            self._show_pass(
+                f"COMPLETED｜{record.batch_id} 已完成，"
+                "快速合并临时目录已清理"
+            )
+            body = f"{record.batch_id} 已锁定，不可再修改。"
 
-        self._show_pass(
-            f"COMPLETED｜{record.batch_id} 已完成，"
-            "快速合并临时目录已清理"
-        )
-        QMessageBox.information(
-            self,
-            "Batch 已完成",
-            f"{record.batch_id} 已锁定，不可再修改。",
-        )
+        box = QMessageBox(self)
+        box.setWindowTitle("Batch 已完成")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(body)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.exec()
 
     def _on_date_changed(self, *_):
 
@@ -1702,18 +1746,29 @@ class InvoicePage(QWidget):
 
         if result.passed:
 
-            self.status_label.setText(
-                "PASS｜原始发票校验通过"
-            )
+            text = "PASS｜原始发票校验通过"
+            if result.warnings:
+                text += "\n\n" + "\n".join(result.warnings[:8])
+            self.status_label.setText(text)
 
-            self.status_label.setStyleSheet(
-                """
-                padding:9px;
-                color:#087A45;
-                background:#E8F7EF;
-                border-radius:5px;
-                """
-            )
+            if result.warnings:
+                self.status_label.setStyleSheet(
+                    """
+                    padding:9px;
+                    color:#8A5A00;
+                    background:#FFF7E6;
+                    border-radius:5px;
+                    """
+                )
+            else:
+                self.status_label.setStyleSheet(
+                    """
+                    padding:9px;
+                    color:#087A45;
+                    background:#E8F7EF;
+                    border-radius:5px;
+                    """
+                )
 
         else:
 

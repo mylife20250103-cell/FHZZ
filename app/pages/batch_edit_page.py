@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from app.services.batch_modify_service import (
     apply_modifications,
+    normalize_cell_address,
     preview_files,
 )
 from app.workers import TaskWorker
@@ -64,14 +65,21 @@ class BatchEditPage(QWidget):
 
         controls.addWidget(QLabel("手工单元格："))
         self.cell_edit = QLineEdit()
-        self.cell_edit.setPlaceholderText("无 _SystemMeta 时使用，例如 B4")
+        self.cell_edit.setPlaceholderText("无 _SystemMeta 时使用，例如 B2")
         self.cell_edit.setMaximumWidth(140)
+        self.cell_edit.editingFinished.connect(self.refresh_inputs)
         controls.addWidget(self.cell_edit)
 
         controls.addWidget(QLabel("新值："))
         self.value_edit = QLineEdit()
         self.value_edit.setPlaceholderText("新的发货渠道")
+        self.value_edit.textChanged.connect(self.refresh_inputs)
         controls.addWidget(self.value_edit)
+
+        self.select_all_button = QPushButton("全选 / 取消全选")
+        self.select_all_button.setObjectName("SecondaryButton")
+        self.select_all_button.clicked.connect(self.toggle_select_all)
+        controls.addWidget(self.select_all_button)
 
         self.run_button = QPushButton("批量执行")
         self.run_button.setStyleSheet(
@@ -99,6 +107,9 @@ class BatchEditPage(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.horizontalHeader().sectionClicked.connect(
+            self._on_header_clicked
+        )
         table_layout.addWidget(self.table)
         root.addWidget(table_card, 1)
 
@@ -129,6 +140,46 @@ class BatchEditPage(QWidget):
         )
         self.render_rows()
         self.status.setText(f"已加载 {len(self.rows)} 个文件")
+
+    def _manual_cell(self) -> str:
+
+        return normalize_cell_address(self.cell_edit.text())
+
+    def refresh_inputs(self):
+
+        if not self.rows:
+            return
+
+        self._apply_inputs_to_rows()
+        self.render_rows()
+
+    def _apply_inputs_to_rows(self):
+
+        new_value = self.value_edit.text().strip()
+        manual_cell = self._manual_cell()
+
+        for row in self.rows:
+            row.new_value = new_value
+            if not row.cell and manual_cell:
+                row.cell = manual_cell
+
+    def toggle_select_all(self):
+
+        if not self.rows:
+            return
+
+        all_selected = all(row.selected for row in self.rows)
+        new_state = not all_selected
+
+        for row in self.rows:
+            row.selected = new_state
+
+        self.render_rows()
+
+    def _on_header_clicked(self, section: int):
+
+        if section == 0:
+            self.toggle_select_all()
 
     def render_rows(self):
 
@@ -170,8 +221,23 @@ class BatchEditPage(QWidget):
             QMessageBox.warning(self, "缺少新值", "请输入要写入的新值。")
             return
 
-        for row in self.rows:
-            row.new_value = new_value
+        self._apply_inputs_to_rows()
+
+        missing_cell = [
+            row.file_name
+            for row in self.rows
+            if row.selected and not row.cell
+        ]
+        if missing_cell:
+            QMessageBox.warning(
+                self,
+                "未指定目标单元格",
+                "这些文件没有 ChannelCell，请在「手工单元格」填 Excel 地址，"
+                "例如 B2：\n\n"
+                + "\n".join(missing_cell[:12]),
+            )
+            self.render_rows()
+            return
 
         selected = [row for row in self.rows if row.selected]
         if not selected:

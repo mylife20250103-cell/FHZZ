@@ -13,6 +13,7 @@ from app.invoice_config import (
     CURRENT_CONFIG_INI,
     EXCLUDE_DIR_NAMES,
     INVOICE_SOURCES_INI,
+    is_excel_junk_file,
 )
 
 
@@ -355,6 +356,9 @@ def collect_invoice_files(
             ):
                 continue
 
+            if is_excel_junk_file(path):
+                continue
+
             if (
                 path.suffix.lower()
                 not in ALLOWED_EXTENSIONS
@@ -490,6 +494,46 @@ def read_system_meta(
         workbook.close()
 
 
+def _keep_latest_generation(
+    staged: list[tuple[Path, dict]],
+) -> tuple[list[tuple[Path, dict]], list[str]]:
+    """
+    同一 SourceID 若被重新生成过，未合并里常会留下旧文件。
+    GeneratedAt 可以不同；只保留最新一批，旧文件跳过。
+    """
+
+    latest: dict[str, str] = {}
+
+    for _path, meta in staged:
+        source_id = str(meta.get("SourceID") or "")
+        generated_at = str(meta.get("GeneratedAt") or "")
+        current = latest.get(source_id)
+        if current is None or generated_at > current:
+            latest[source_id] = generated_at
+
+    kept = []
+    skipped: dict[str, list[str]] = {}
+
+    for path, meta in staged:
+        source_id = str(meta.get("SourceID") or "")
+        generated_at = str(meta.get("GeneratedAt") or "")
+        if generated_at != latest.get(source_id, generated_at):
+            skipped.setdefault(source_id, []).append(path.name)
+            continue
+        kept.append((path, meta))
+
+    warnings = []
+    for source_id, names in skipped.items():
+        warnings.append(
+            f"SourceID {source_id} 未合并里混有更早生成的旧发票，"
+            f"已跳过 {len(names)} 个，只保留最新批次 "
+            f"{latest.get(source_id, '')}："
+            + "、".join(names)
+        )
+
+    return kept, warnings
+
+
 # =========================================================
 # 主扫描
 # =========================================================
@@ -542,7 +586,10 @@ def scan_original_invoices(
     global_cartons = set()
 
     source_consistency = {}
+    source_mismatch_reported = set()
     fba_warehouse = {}
+
+    staged: list[tuple[Path, dict]] = []
 
     for path in files:
 
@@ -558,13 +605,21 @@ def scan_original_invoices(
 
             continue
 
-        # 只处理当前 DateID
         if (
             meta["DateID"]
             != date_id
         ):
 
             continue
+
+        staged.append((path, meta))
+
+    kept, generation_warnings = _keep_latest_generation(
+        staged
+    )
+    warnings.extend(generation_warnings)
+
+    for path, meta in kept:
 
         carrier_code = (
             meta["CarrierCode"]
@@ -670,7 +725,6 @@ def scan_original_invoices(
         # ======================================
 
         consistency_value = (
-            meta["GeneratedAt"],
             meta["StoreCode"],
             meta["PlanID"],
             meta["DateID"],
@@ -683,22 +737,27 @@ def scan_original_invoices(
             )
         )
 
-        if (
-            previous is not None
-            and
-            previous != consistency_value
-        ):
-
-            errors.append(
-                f"SourceID {source_id} "
-                "内部元数据不一致"
-            )
-
-        else:
+        if previous is None:
 
             source_consistency[
                 source_id
             ] = consistency_value
+
+        elif (
+            previous != consistency_value
+            and
+            source_id not in source_mismatch_reported
+        ):
+
+            errors.append(
+                f"SourceID {source_id} "
+                "内部元数据不一致："
+                "同一 SourceID 的店铺/计划/日期/物流商必须相同。"
+                f"文件 {path.name} 与同批其他发票不一致。"
+            )
+            source_mismatch_reported.add(
+                source_id
+            )
 
         # ======================================
         # FBA → Warehouse

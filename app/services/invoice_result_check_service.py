@@ -61,7 +61,13 @@ def run_result_check(batch: BatchRecord) -> ResultCheckOutcome:
 
     for group in groups:
 
-        output = Path(group["planned_output_path"])
+        adapter = get_adapter(
+            group["carrier_code"],
+            group["template_version"],
+        )
+        output = Path(group["planned_output_path"]).with_suffix(
+            adapter.output_extension()
+        )
 
         if not output.exists():
             errors.append(f"缺少输出文件：{output}")
@@ -74,16 +80,12 @@ def run_result_check(batch: BatchRecord) -> ResultCheckOutcome:
         actual_files.append(output)
 
         try:
-            workbook = load_workbook(output, data_only=False)
-            workbook.close()
+            if output.suffix.lower() != ".xls":
+                workbook = load_workbook(output, data_only=False)
+                workbook.close()
         except Exception as exc:
             errors.append(f"{output.name}：无法打开：{exc}")
             continue
-
-        adapter = get_adapter(
-            group["carrier_code"],
-            group["template_version"],
-        )
 
         enriched = dict(group)
         enriched["date_id"] = batch.date_id

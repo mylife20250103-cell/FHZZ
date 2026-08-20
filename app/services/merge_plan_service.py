@@ -35,9 +35,11 @@ def output_file_name(
     carrier_code: str,
     warehouse_code: str,
     carton_count: int,
+    extension: str = ".xlsx",
 ) -> str:
 
-    return f"{carrier_code}_{warehouse_code}_{carton_count}箱.xlsx"
+    suffix = extension if extension.startswith(".") else f".{extension}"
+    return f"{carrier_code}_{warehouse_code}_{carton_count}箱{suffix}"
 
 
 def planned_output_path(
@@ -46,6 +48,7 @@ def planned_output_path(
     carrier_code: str,
     warehouse_code: str,
     carton_count: int,
+    extension: str = ".xlsx",
 ) -> Path:
 
     return (
@@ -56,6 +59,7 @@ def planned_output_path(
             carrier_code,
             warehouse_code,
             carton_count,
+            extension=extension,
         )
     )
 
@@ -181,12 +185,14 @@ def build_merge_plan(batch: BatchRecord) -> MergePlanResult:
 
         adapter_name = members[0]["adapter_id"]
         carton_count = len(carton_numbers)
+        group_adapter = get_adapter(carrier_code, template_version)
         output_path = planned_output_path(
             batch.date_id,
             batch.batch_id,
             carrier_code,
             warehouse_code,
             carton_count,
+            extension=group_adapter.output_extension(),
         )
 
         group_id = (

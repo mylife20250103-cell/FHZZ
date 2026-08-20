@@ -119,7 +119,8 @@ def run_content_merge(batch: BatchRecord) -> ContentMergeResult:
             enriched["date_id"] = batch.date_id
             enriched["merge_plan_hash"] = merge_plan_hash
 
-            temp_output = group_work / "merged_tmp.xlsx"
+            ext = adapter.output_extension()
+            temp_output = group_work / f"merged_tmp{ext}"
 
             try:
                 adapter.merge_group(enriched, temp_output)
@@ -134,7 +135,7 @@ def run_content_merge(batch: BatchRecord) -> ContentMergeResult:
                 errors.extend(output_errors)
                 continue
 
-            official = Path(group["planned_output_path"])
+            official = Path(group["planned_output_path"]).with_suffix(ext)
             official.parent.mkdir(parents=True, exist_ok=True)
 
             temp_official = official.with_name(

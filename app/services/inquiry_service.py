@@ -21,6 +21,11 @@ from app.inquiry_config import (
     INQUIRY_CARTON_COLUMN,
     WAREHOUSE_PATTERN,
 )
+from app.invoice_config import (
+    LOCAL_TEMP_ROOT,
+    is_excel_junk_file,
+    try_remove_excel_junk,
+)
 
 
 REQUIRED_COLUMNS = {
@@ -106,9 +111,17 @@ def collect_inquiry_files(
         if not directory.is_dir():
             continue
 
+        for junk in directory.rglob("*"):
+            if junk.is_file() and is_excel_junk_file(junk):
+                try_remove_excel_junk(junk)
+
         for path in directory.rglob(
             "*_询价明细.xlsx"
         ):
+
+            if is_excel_junk_file(path):
+                try_remove_excel_junk(path)
+                continue
 
             if path.name.startswith("~$"):
                 continue
@@ -797,10 +810,8 @@ def generate_inquiry_summary(
         output_directory / output_name
     )
 
-    temp_path = (
-        output_directory
-        / f".__inquiry_tmp_{date_id}.xlsx"
-    )
+    LOCAL_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+    temp_path = LOCAL_TEMP_ROOT / f"inquiry_tmp_{date_id}.xlsx"
 
     # 防止上次异常遗留
     if temp_path.exists():
@@ -1243,15 +1254,17 @@ def generate_inquiry_summary(
     # 注意：
     # 不先删除旧结果。
     #
-    # temp 已完整生成并通过验证后，
-    # 才用 replace 原子替换。
+    # temp 在本地生成并通过验证后，再复制到中央结果目录，
+    # 避免 Excel 在 OneDrive 上留下 .~tmp_ 文件。
     # ==========================================
 
     try:
 
-        temp_path.replace(
-            output_path
-        )
+        shutil.copy2(temp_path, output_path)
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
 
     except PermissionError:
 
@@ -1262,6 +1275,10 @@ def generate_inquiry_summary(
             "请关闭该文件后重新生成。\n\n"
             f"{output_path}"
         )
+
+    for folder in (output_directory, LOCAL_TEMP_ROOT):
+        for junk in folder.glob(".~tmp*"):
+            try_remove_excel_junk(junk)
 
     # ==========================================
     # 删除同日其他旧结果

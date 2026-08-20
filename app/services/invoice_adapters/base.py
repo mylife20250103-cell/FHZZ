@@ -63,3 +63,7 @@ class InvoiceMergeAdapter:
     def product_field_specs(self) -> list[ProductFieldSpec]:
 
         return self.template_config().product_fields
+
+    def output_extension(self) -> str:
+
+        return ".xlsx"

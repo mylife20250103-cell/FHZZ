@@ -2,3 +2,6 @@ PySide6
 openpyxl
 pywin32
 pytest
+Pillow
+xlrd==1.2.0
+olefile

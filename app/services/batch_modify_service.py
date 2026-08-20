@@ -34,17 +34,54 @@ class ModifyResult:
     errors: list[str] = field(default_factory=list)
 
 
-def parse_cell(address: str) -> tuple[str, int]:
+def normalize_cell_address(address: str) -> str:
+    """
+    把用户输入收成 Excel 地址，例如：
+    B2、b2、B2单元格、单元格B2 → B2
+    """
 
-    text = address.strip().upper()
+    text = (address or "").strip().upper()
+    text = (
+        text.replace("单元格", "")
+        .replace("CELL", "")
+        .replace("$", "")
+        .replace("：", "")
+        .replace(":", "")
+        .strip()
+    )
+
     letters = ""
     digits = ""
 
     for char in text:
-        if char.isalpha():
+        if "A" <= char <= "Z":
+            if digits:
+                break
             letters += char
         elif char.isdigit():
+            if not letters:
+                continue
             digits += char
+
+    if not letters or not digits:
+        return ""
+
+    return f"{letters}{digits}"
+
+
+def parse_cell(address: str) -> tuple[str, int]:
+
+    text = normalize_cell_address(address)
+
+    if not text:
+        raise ValueError(f"无效单元格：{address}")
+
+    letters = "".join(
+        char for char in text if "A" <= char <= "Z"
+    )
+    digits = "".join(
+        char for char in text if char.isdigit()
+    )
 
     if not letters or not digits:
         raise ValueError(f"无效单元格：{address}")
@@ -81,7 +118,7 @@ def preview_files(
             continue
 
         carrier = ""
-        cell = manual_cell.strip().upper()
+        cell = normalize_cell_address(manual_cell)
         sheet_name = ""
         current = ""
         error = ""
@@ -90,7 +127,10 @@ def preview_files(
 
         if meta:
             carrier = meta.get("CarrierCode", "")
-            cell = meta.get("ChannelCell", cell).strip().upper() or cell
+            cell = (
+                normalize_cell_address(meta.get("ChannelCell", ""))
+                or cell
+            )
             sheet_name = next(
                 (
                     name

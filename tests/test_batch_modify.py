@@ -2,8 +2,18 @@ from __future__ import annotations
 
 from app.services.batch_modify_service import (
     ModifyPreviewRow,
+    normalize_cell_address,
+    parse_cell,
     precheck_rows,
 )
+
+
+def test_normalize_cell_address():
+
+    assert normalize_cell_address("B2单元格") == "B2"
+    assert normalize_cell_address(" b4 ") == "B4"
+    assert normalize_cell_address("单元格B2") == "B2"
+    assert parse_cell("B2单元格") == ("B", 2)
 
 
 def test_precheck_requires_cell_and_existing_file(tmp_path):

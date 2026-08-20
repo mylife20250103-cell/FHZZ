@@ -181,15 +181,16 @@ def test_merge_plan_groups_by_warehouse(tmp_path, monkeypatch):
             group["carrier_code"],
             group["warehouse_code"],
             group["input_count"],
+            extension=".xls",
         )
         for group in result.plan["Groups"]
     ]
 
-    assert "KYD_BJC1_1箱.xlsx" in names
-    assert "KYD_PSP3_3箱.xlsx" in names
-    assert "KYD_IND9_1箱.xlsx" in names
-    assert "KYD_SCK4_1箱.xlsx" in names
-    assert "KYD_TEB9_1箱.xlsx" in names
+    assert "KYD_BJC1_1箱.xls" in names
+    assert "KYD_PSP3_3箱.xls" in names
+    assert "KYD_IND9_1箱.xls" in names
+    assert "KYD_SCK4_1箱.xls" in names
+    assert "KYD_TEB9_1箱.xls" in names
 
     psp3 = next(
         group
