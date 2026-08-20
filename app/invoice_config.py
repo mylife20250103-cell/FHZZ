@@ -54,6 +54,13 @@ KYD_TEMPLATE_PATH = (
 )
 
 
+MC_TEMPLATE_PATH = (
+    SYSTEM_ROOT
+    / "模板"
+    / "迈创发票模板.xlsx"
+)
+
+
 LOCAL_ROOT = Path(r"D:\InvoiceMergeSystem")
 
 LOG_ROOT = LOCAL_ROOT / "logs"
