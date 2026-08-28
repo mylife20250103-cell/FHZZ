@@ -5,3 +5,4 @@ pytest
 Pillow
 xlrd==1.2.0
 olefile
+sqlalchemy>=2.0,<3
