@@ -139,6 +139,22 @@ class HomePage(QWidget):
             ],
         )
 
+        tracking_card = ModuleCard(
+            route="tracking",
+            icon_text="踪",
+            title="发货追踪",
+            description="扫描装箱明细，查看 FBA / SKU / 补货数量",
+            button_text="进入发货追踪",
+            main_color="#0F766E",
+            light_color="#E6F4F1",
+            stats=[
+                ("店铺", "—"),
+                ("FBA", "—"),
+                ("SKU", "—"),
+                ("Tracking", "无"),
+            ],
+        )
+
         edit_card = ModuleCard(
             route="batch_edit",
             icon_text="改",
@@ -190,6 +206,7 @@ class HomePage(QWidget):
         module_cards = [
             inquiry_card,
             invoice_card,
+            tracking_card,
             edit_card,
             sensitive_card,
             maintain_card,
@@ -225,9 +242,15 @@ class HomePage(QWidget):
         )
 
         cards.addWidget(
-            maintain_card,
+            tracking_card,
             1,
             0,
+        )
+
+        cards.addWidget(
+            maintain_card,
+            1,
+            1,
         )
 
         for column in range(4):

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.shipment_tracking.indexing.shipping_file_indexer import (
     index_shipping_files,
+    list_store_codes,
 )
 
 
@@ -71,3 +72,14 @@ def test_index_date_folder_without_year(tmp_path):
     assert files[0].filename_day == 6
     assert files[0].candidate_forwarder == "某某货代"
     assert files[0].batch_no == 1
+
+
+def test_index_can_filter_one_store(tmp_path):
+    root = tmp_path / "装箱明细"
+    _touch(root / "美3" / "2026.8" / "8.21美3" / "0811-美3-快越达.xlsm")
+    _touch(root / "美10" / "2026.08" / "8.19美10" / "0819-美10-快越达.xlsm")
+
+    assert set(list_store_codes(root)) == {"美3", "美10"}
+    only_three = index_shipping_files(root, store_code="美3")
+    assert len(only_three) == 1
+    assert only_three[0].store_code == "美3"

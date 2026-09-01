@@ -29,7 +29,10 @@ class IndexedShippingFile:
     candidate_forwarder: str | None
 
 
-def index_shipping_files(root) -> tuple[IndexedShippingFile, ...]:
+def index_shipping_files(
+    root,
+    store_code: str | None = None,
+) -> tuple[IndexedShippingFile, ...]:
     """
     扫描装箱明细目录树，只索引路径层。
     不打开 Excel、不确认货代、不解析发货规划。
@@ -39,22 +42,25 @@ def index_shipping_files(root) -> tuple[IndexedShippingFile, ...]:
     if not base.exists():
         return ()
 
+    wanted = (store_code or "").strip()
     found: list[IndexedShippingFile] = []
     for store_dir in _iter_dirs(base):
-        store_code = store_dir.name
+        current_store = store_dir.name
+        if wanted and current_store != wanted:
+            continue
         for child in _iter_dirs(store_dir):
             month_match = MONTH_FOLDER.fullmatch(child.name)
             if month_match:
                 year = int(month_match.group(1))
                 month = int(month_match.group(2))
                 found.extend(
-                    _index_month_dir(child, store_code, year, month)
+                    _index_month_dir(child, current_store, year, month)
                 )
                 continue
             found.extend(
                 _index_date_or_files(
                     child,
-                    store_code=store_code,
+                    store_code=current_store,
                     year=None,
                     month=None,
                 )
@@ -62,7 +68,7 @@ def index_shipping_files(root) -> tuple[IndexedShippingFile, ...]:
         found.extend(
             _collect_files(
                 store_dir,
-                store_code=store_code,
+                store_code=current_store,
                 year=None,
                 month=None,
                 folder_day=None,
@@ -70,6 +76,14 @@ def index_shipping_files(root) -> tuple[IndexedShippingFile, ...]:
             )
         )
     return tuple(found)
+
+
+def list_store_codes(root) -> tuple[str, ...]:
+
+    base = Path(root)
+    if not base.exists():
+        return ()
+    return tuple(child.name for child in _iter_dirs(base))
 
 
 def _index_month_dir(
