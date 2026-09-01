@@ -6,6 +6,7 @@ __pycache__/
 *.pyc
 build/
 dist/
+release/
 .venv/
 .env
 .env.*

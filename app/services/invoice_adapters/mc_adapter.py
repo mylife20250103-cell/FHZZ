@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import stat
 from pathlib import Path
@@ -13,6 +14,7 @@ from app.excel_com import (
     open_workbook,
 )
 from app.invoice_config import MC_TEMPLATE_PATH
+from app.services.address_library import load_mc_address_rows
 from app.services.invoice_adapters.base import (
     AdapterError,
     AdapterTemplateConfig,
@@ -28,7 +30,8 @@ class McAdapter(InvoiceMergeAdapter):
     源发票工作表【迈创发票】，表头第17行，明细从第18行起。
     产品图是 R 列 URL，不转浮动图。
     内容合并复制中央【迈创发票模板.xlsx】，只填复制件的【模板】表，
-    保留地址 VLOOKUP 和模板自带渠道。
+    用中央【各物流地址库.xlsx】覆盖「地址库」，再算 VLOOKUP。
+    官方模板文件本身不改。
     """
 
     carrier_code = "MC"
@@ -40,6 +43,9 @@ class McAdapter(InvoiceMergeAdapter):
     LAST_DATA_COL = 22
     EMPTY_CARTON_STOP = 8
     FLAG_CELLS = ("F1", "F2", "F3", "F4", "F5", "F6", "F8")
+    ADDRESS_SHEET = "地址库"
+    ADDRESS_LOOKUP_CELLS = ("B6", "B9", "B10", "B11", "B12")
+    ADDRESS_COLUMNS = 14
 
     def template_config(self) -> AdapterTemplateConfig:
 
@@ -79,6 +85,7 @@ class McAdapter(InvoiceMergeAdapter):
             notes=(
                 "MC 从中央【迈创发票模板.xlsx】复制后填写【模板】表。"
                 "B2 渠道用模板自带名称，不覆盖源发票旧服务名。"
+                "「地址库」在合并时用中央文件覆盖，不改官方模板。"
                 "产品图片在 R 列链接，不是浮动图。"
             ),
         )
@@ -120,6 +127,48 @@ class McAdapter(InvoiceMergeAdapter):
             workbook.close()
 
         return errors
+
+    def diagnose_source(self, workbook_path) -> list[str]:
+
+        path = Path(workbook_path)
+        cfg = self.template_config()
+        try:
+            workbook = load_workbook(path, data_only=False)
+        except Exception as exc:
+            return [f"{path.name}：无法打开：{exc}"]
+
+        issues: list[str] = []
+        try:
+            if self.SOURCE_SHEET not in workbook.sheetnames:
+                return [f"{path.name}：缺少工作表【{self.SOURCE_SHEET}】"]
+            ws = workbook[self.SOURCE_SHEET]
+            cartons = self._count_data_rows_openpyxl(ws, cfg.data_start_row)
+            if not cartons:
+                issues.append(f"{path.name}：没有找到明细行")
+            warehouse = ws[cfg.warehouse_cell].value
+            if warehouse in (None, "") or not str(warehouse).strip():
+                issues.append(f"{path.name}：{cfg.warehouse_cell} 仓库为空")
+            empty_run = 0
+            last = min(ws.max_row or cfg.data_start_row, cfg.data_start_row + 200)
+            for row in range(cfg.data_start_row, last + 1):
+                carton = ws.cell(row, 1).value
+                if carton in (None, ""):
+                    empty_run += 1
+                    if empty_run >= self.EMPTY_CARTON_STOP:
+                        break
+                    continue
+                empty_run = 0
+                label = f"{path.name} 第{row}行 {str(carton).strip()}"
+                if ws.cell(row, 7).value in (None, ""):
+                    issues.append(f"{label}：产品英文品名为空")
+                if ws.cell(row, 8).value in (None, ""):
+                    issues.append(f"{label}：产品中文品名为空")
+        except Exception as exc:
+            issues.append(f"{path.name}：自检异常：{exc}")
+        finally:
+            workbook.close()
+
+        return issues
 
     def _is_data_carton(self, value) -> bool:
 
@@ -199,6 +248,35 @@ class McAdapter(InvoiceMergeAdapter):
         dst_ws.Application.CutCopyMode = False
         dst_ws.Rows(dst_row).RowHeight = src_ws.Rows(src_row).RowHeight
 
+    def _replace_address_sheet(self, worksheet, rows: list[list[object]]) -> None:
+        if not rows:
+            raise AdapterError("迈创中央地址库是空的")
+
+        last_old = int(worksheet.UsedRange.Rows.Count)
+        last_new = len(rows)
+        clear_to = max(last_old, last_new, 990)
+        worksheet.Range(
+            worksheet.Cells(1, 1),
+            worksheet.Cells(clear_to, self.ADDRESS_COLUMNS),
+        ).ClearContents()
+        worksheet.Range(
+            worksheet.Cells(1, 1),
+            worksheet.Cells(last_new, self.ADDRESS_COLUMNS),
+        ).Value = rows
+
+    def _retarget_address_lookups(self, dest_ws, last_row: int) -> None:
+        last_row = max(int(last_row), 2)
+        pattern = re.compile(r"(\$?N)\$?\d+", re.IGNORECASE)
+        for coord in self.ADDRESS_LOOKUP_CELLS:
+            formula = dest_ws.Range(coord).Formula
+            if not isinstance(formula, str) or "地址库" not in formula:
+                continue
+            dest_ws.Range(coord).Formula = pattern.sub(
+                rf"\g<1>${last_row}",
+                formula,
+                count=1,
+            )
+
     def merge_group(self, group: dict, output_path) -> None:
 
         cfg = self.template_config()
@@ -224,6 +302,17 @@ class McAdapter(InvoiceMergeAdapter):
                     raise AdapterError(
                         f"迈创发票模板缺少工作表【{self.OUTPUT_SHEET}】：{exc}"
                     ) from exc
+
+                try:
+                    addr_ws = dest_book.Worksheets(self.ADDRESS_SHEET)
+                except Exception as exc:
+                    raise AdapterError(
+                        f"迈创发票模板缺少工作表【{self.ADDRESS_SHEET}】：{exc}"
+                    ) from exc
+
+                address_rows = load_mc_address_rows()
+                self._replace_address_sheet(addr_ws, address_rows)
+                self._retarget_address_lookups(dest_ws, len(address_rows))
 
                 last_dest_row = cfg.data_start_row - 1
 

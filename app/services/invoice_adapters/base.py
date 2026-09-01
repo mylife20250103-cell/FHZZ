@@ -48,6 +48,11 @@ class InvoiceMergeAdapter:
 
         raise NotImplementedError
 
+    def diagnose_source(self, workbook_path) -> list[str]:
+        """合并失败时逐张检查源发票，返回人员可读的问题列表。"""
+
+        return []
+
     def build_plan(self, group: dict) -> dict:
 
         return group

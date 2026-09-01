@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from app.app_logging import log_event
@@ -14,6 +15,7 @@ from app.services.batch_service import (
 )
 from app.services.invoice_adapters import get_adapter
 from app.services.invoice_scan_service import read_system_meta
+from app.services.merge_diagnose_service import diagnose_merge_group
 
 
 class ContentMergeError(Exception):
@@ -26,12 +28,34 @@ class ContentMergeResult:
     batch_id: str
     output_files: list[str]
     errors: list[str]
+    diagnose_report_path: str = ""
 
 
 def _cleanup(path: Path) -> None:
 
     if path.exists():
         shutil.rmtree(path, ignore_errors=True)
+
+
+def _write_diagnose_report(batch: BatchRecord, errors: list[str]) -> str:
+
+    path = batch.directory / "content_merge_diagnose.txt"
+    header = [
+        f"批次：{batch.batch_id}",
+        f"时间：{datetime.now().isoformat(timespec='seconds')}",
+        "内容合并失败自检",
+        "",
+    ]
+    path.write_text("\n".join(header + errors), encoding="utf-8")
+    return str(path)
+
+
+def _diagnose_failed_group(adapter, group: dict, input_files: list[Path]) -> list[str]:
+
+    try:
+        return diagnose_merge_group(adapter, group, input_files)
+    except Exception as exc:
+        return [f"【自检】未能完成：{exc}"]
 
 
 def run_content_merge(batch: BatchRecord) -> ContentMergeResult:
@@ -112,6 +136,9 @@ def run_content_merge(batch: BatchRecord) -> ContentMergeResult:
             errors.extend(group_errors)
 
             if group_errors:
+                errors.extend(
+                    _diagnose_failed_group(adapter, group, local_inputs)
+                )
                 continue
 
             enriched = dict(group)
@@ -128,11 +155,17 @@ def run_content_merge(batch: BatchRecord) -> ContentMergeResult:
                 errors.append(
                     f"{group['group_id']} 合并失败：{exc}"
                 )
+                errors.extend(
+                    _diagnose_failed_group(adapter, group, local_inputs)
+                )
                 continue
 
             output_errors = adapter.validate_output(temp_output, enriched)
             if output_errors:
                 errors.extend(output_errors)
+                errors.extend(
+                    _diagnose_failed_group(adapter, group, local_inputs)
+                )
                 continue
 
             official = Path(group["planned_output_path"]).with_suffix(ext)
@@ -160,11 +193,20 @@ def run_content_merge(batch: BatchRecord) -> ContentMergeResult:
                 except OSError:
                     pass
 
+            log_event(
+                "invoice_content_merge",
+                "内容合并失败，已写源自检报告",
+                batch_id=batch.batch_id,
+                stage="5",
+                error_type="content_merge",
+                detail="\n".join(errors),
+            )
             return ContentMergeResult(
                 passed=False,
                 batch_id=batch.batch_id,
                 output_files=[],
                 errors=errors,
+                diagnose_report_path=_write_diagnose_report(batch, errors),
             )
 
         save_status(batch, STATUS_CONTENT_MERGED)

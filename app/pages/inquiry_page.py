@@ -148,6 +148,10 @@ class InquiryPage(QWidget):
             QDate.currentDate()
         )
 
+        self.date_edit.dateChanged.connect(
+            self.refresh_source_label
+        )
+
         controls.addWidget(
             self.date_edit
         )
@@ -160,10 +164,32 @@ class InquiryPage(QWidget):
             "SecondaryText"
         )
 
+        self.source_label.setWordWrap(True)
+
         controls.addWidget(
             self.source_label,
             1,
         )
+
+        path_button = QPushButton(
+            "询价路径"
+        )
+
+        path_button.setObjectName(
+            "SecondaryButton"
+        )
+
+        path_button.clicked.connect(
+            self.open_inquiry_path
+        )
+
+        controls.addWidget(
+            path_button
+        )
+
+        setup.addLayout(controls)
+
+        buttons = QHBoxLayout()
 
         add_button = QPushButton(
             "＋ 临时追加目录"
@@ -177,7 +203,7 @@ class InquiryPage(QWidget):
             self.add_directory
         )
 
-        controls.addWidget(
+        buttons.addWidget(
             add_button
         )
 
@@ -214,7 +240,7 @@ class InquiryPage(QWidget):
             self.scan_extra
         )
 
-        controls.addWidget(
+        buttons.addWidget(
             self.extra_scan_button
         )
 
@@ -243,11 +269,13 @@ class InquiryPage(QWidget):
             self.scan
         )
 
-        controls.addWidget(
+        buttons.addWidget(
             self.scan_button
         )
 
-        setup.addLayout(controls)
+        buttons.addStretch()
+
+        setup.addLayout(buttons)
 
         self.extra_list = QListWidget()
 
@@ -536,6 +564,27 @@ class InquiryPage(QWidget):
             "默认扫描："
             f"{self.default_directory()}"
         )
+
+    def open_inquiry_path(self):
+
+        directory = self.default_directory()
+        if not directory.exists():
+            QMessageBox.warning(
+                self,
+                "找不到目录",
+                "当天询价路径还不存在：\n\n"
+                f"{directory}",
+            )
+            return
+
+        try:
+            os.startfile(str(directory))
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "打开失败",
+                f"无法打开询价路径：\n\n{directory}\n\n{exc}",
+            )
 
     def add_directory(self):
 

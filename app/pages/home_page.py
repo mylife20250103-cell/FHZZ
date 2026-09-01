@@ -99,7 +99,7 @@ class HomePage(QWidget):
         root.addLayout(header)
 
         # =========================
-        # 四个主业务卡片
+        # 主业务卡片
         # =========================
 
         cards = QGridLayout()
@@ -171,11 +171,28 @@ class HomePage(QWidget):
             ],
         )
 
+        maintain_card = ModuleCard(
+            route="maintain",
+            icon_text="维",
+            title="维护",
+            description="打开需要人工维护的中央文件，例如各物流地址库",
+            button_text="进入维护",
+            main_color="#5B6B8A",
+            light_color="#EEF1F6",
+            stats=[
+                ("地址库", "1"),
+                ("模板", "—"),
+                ("词库", "—"),
+                ("其他", "—"),
+            ],
+        )
+
         module_cards = [
             inquiry_card,
             invoice_card,
             edit_card,
             sensitive_card,
+            maintain_card,
         ]
 
         for card in module_cards:
@@ -205,6 +222,12 @@ class HomePage(QWidget):
             sensitive_card,
             0,
             3,
+        )
+
+        cards.addWidget(
+            maintain_card,
+            1,
+            0,
         )
 
         for column in range(4):
@@ -527,6 +550,10 @@ class HomePage(QWidget):
             (
                 "检查敏感词",
                 "sensitive",
+            ),
+            (
+                "维护各物流地址库",
+                "maintain",
             ),
         ]
 

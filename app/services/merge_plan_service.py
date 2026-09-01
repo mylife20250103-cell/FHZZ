@@ -158,18 +158,13 @@ def build_merge_plan(batch: BatchRecord) -> MergePlanResult:
             )
         )
 
+        adapter_name = members[0]["adapter_id"]
         carton_numbers = [
-            item["manifest"]["CartonNumber"]
-            for item in members
+            item["manifest"]["CartonNumber"] for item in members
         ]
-
         source_ids = sorted(
-            {
-                item["manifest"]["SourceID"]
-                for item in members
-            }
+            {item["manifest"]["SourceID"] for item in members}
         )
-
         machine_keys = [
             [
                 item["manifest"]["SourceID"],
@@ -177,13 +172,9 @@ def build_merge_plan(batch: BatchRecord) -> MergePlanResult:
             ]
             for item in members
         ]
-
         input_files = [
-            item["manifest"]["copied_path"]
-            for item in members
+            item["manifest"]["copied_path"] for item in members
         ]
-
-        adapter_name = members[0]["adapter_id"]
         carton_count = len(carton_numbers)
         group_adapter = get_adapter(carrier_code, template_version)
         output_path = planned_output_path(
@@ -194,7 +185,6 @@ def build_merge_plan(batch: BatchRecord) -> MergePlanResult:
             carton_count,
             extension=group_adapter.output_extension(),
         )
-
         group_id = (
             f"{batch.batch_id}_"
             f"{carrier_code}_"

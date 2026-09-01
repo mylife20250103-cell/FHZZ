@@ -5,8 +5,9 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QDate,
+    QUrl,
 )
-from PySide6.QtGui import QShowEvent
+from PySide6.QtGui import QDesktopServices, QShowEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
@@ -1333,14 +1334,30 @@ class InvoicePage(QWidget):
             )
         else:
             self._show_fail("FAILED｜内容合并失败", result.errors)
-            QMessageBox.critical(
-                self,
-                "内容合并失败",
-                "\n".join(result.errors[:12]) or "未知错误",
-            )
+            self._show_content_merge_fail_dialog(result)
 
         if record:
             self.apply_batch(record)
+
+    def _show_content_merge_fail_dialog(self, result):
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Critical)
+        box.setWindowTitle("内容合并失败")
+        box.setText("内容合并失败。已按源发票做自检，方便排查。")
+        report = getattr(result, "diagnose_report_path", "") or ""
+        preview = "\n".join(result.errors[:10]) or "未知错误"
+        if report:
+            preview += f"\n\n自检报告：{report}"
+        box.setInformativeText(preview)
+        box.setDetailedText("\n".join(result.errors))
+        open_btn = None
+        if report:
+            open_btn = box.addButton("打开自检报告", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Ok)
+        box.exec()
+        if open_btn is not None and box.clickedButton() == open_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(report))
 
     def start_result_check(self):
 

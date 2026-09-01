@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.services.invoice_adapters import get_adapter, list_adapter_ids
 from app.services.invoice_second_scan_service import (
     IdentityItem,
@@ -208,6 +210,75 @@ def test_merge_plan_groups_by_warehouse(tmp_path, monkeypatch):
     ).load_batch(batch.directory)
 
     assert refreshed.status == STATUS_MERGE_PLAN_READY
+
+
+def test_merge_plan_keeps_kyd_ten_cartons_in_one_group(tmp_path, monkeypatch):
+
+    monkeypatch.setattr(
+        "app.services.batch_service.BATCH_ROOT",
+        tmp_path / "batches",
+    )
+    monkeypatch.setattr(
+        "app.services.merge_plan_service.MERGE_RESULT_ROOT",
+        tmp_path / "out",
+    )
+
+    records = [
+        make_record(),
+        *[
+            make_record(
+                path=rf"I:\demo\PSP3-{index}.xlsx",
+                sha256=f"p{index}",
+                warehouse_code="PSP3",
+                fba_batch="FBA19L11LFRW",
+                carton_number=f"FBA19L11LFRWU{index:06d}",
+            )
+            for index in range(1, 11)
+        ],
+    ]
+
+    batch, _ = ensure_batch_after_first_scan(
+        "20260819",
+        make_result(records),
+    )
+    save_status(batch, STATUS_QUICK_MERGED)
+    write_json(
+        batch.directory / "quick_merge_manifest.json",
+        {
+            "ManifestVersion": "1.0",
+            "BatchID": batch.batch_id,
+            "DateID": "20260819",
+            "Files": [
+                {
+                    "SourceID": item.source_id,
+                    "CartonNumber": item.carton_number,
+                    "CarrierCode": item.carrier_code,
+                    "WarehouseCode": item.warehouse_code,
+                    "FBABatch": item.fba_batch,
+                    "original_path": item.path,
+                    "copied_path": str(
+                        tmp_path / "copied" / PathLikeName(item)
+                    ),
+                    "sha256": item.sha256,
+                }
+                for item in records
+            ],
+        },
+    )
+
+    result = build_merge_plan(batch)
+
+    assert result.passed
+    assert result.group_count == 2
+    psp3 = next(
+        group
+        for group in result.plan["Groups"]
+        if group["warehouse_code"] == "PSP3"
+    )
+    assert psp3["input_count"] == 10
+    assert Path(psp3["planned_output_path"]).name == "KYD_PSP3_10箱.xls"
+    assert psp3["carton_numbers"][0] == "FBA19L11LFRWU000001"
+    assert psp3["carton_numbers"][-1] == "FBA19L11LFRWU000010"
 
 
 def PathLikeName(item) -> str:

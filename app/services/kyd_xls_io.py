@@ -37,6 +37,7 @@ REC_NUMBER = 0x0203
 REC_BLANK = 0x0201
 REC_MULBLANK = 0x00BE
 REC_FORMULA = 0x0006
+REC_SHRFMLA = 0x04BC
 REC_STRING = 0x0207
 REC_OBJ = 0x005D
 REC_MSODRAWING = 0x00EC
@@ -60,20 +61,6 @@ CELL_RECS = {
     0x00BD,  # MULRK
     0x027E,  # RK
 }
-
-
-@dataclass
-class AddressRow:
-    warehouse: str
-    contact: str
-    company: str
-    phone: float | None
-    address1: str
-    address2: str
-    city: str
-    state: str
-    country: str
-    zip_code: float | None
 
 
 @dataclass
@@ -211,37 +198,48 @@ def write_named_stream(path: Path, name: str, data: bytes) -> None:
         stg = None
 
 
-def prepare_kyd_picture(data: bytes) -> bytes:
-    """压成快越达能识别的小尺寸渐进 JPEG（约 50px / 1-2KB）。"""
+def prepare_kyd_picture(data: bytes, max_bytes: int = 1600) -> bytes:
+    """压成快越达能识别的小尺寸渐进 JPEG。
+
+    MSODRAWINGGROUP 首包只有 8224 字节。多箱时若整张图落到 CONTINUE 里，
+    快越达会按「补上一张图的尾巴」来拼，多出来的图全部读空。
+    """
     from io import BytesIO
 
     from PIL import Image
 
     try:
-        image = Image.open(BytesIO(data))
+        source = Image.open(BytesIO(data))
     except Exception as exc:
         raise _error(f"无法读取产品图片：{exc}") from exc
-    image = image.convert("RGB")
-    image.thumbnail((58, 58), Image.Resampling.LANCZOS)
-    out = BytesIO()
-    image.save(
-        out,
-        format="JPEG",
-        quality=55,
-        optimize=True,
-        progressive=True,
-    )
-    jpeg = out.getvalue()
+    source = source.convert("RGB")
+    limit = max(120, int(max_bytes))
+    jpeg = b""
+    for side, quality in (
+        (58, 55),
+        (52, 48),
+        (46, 42),
+        (40, 38),
+        (34, 32),
+        (28, 28),
+        (24, 24),
+    ):
+        image = source.copy()
+        image.thumbnail((side, side), Image.Resampling.LANCZOS)
+        out = BytesIO()
+        image.save(
+            out,
+            format="JPEG",
+            quality=quality,
+            optimize=True,
+            progressive=True,
+        )
+        jpeg = out.getvalue()
+        if 80 <= len(jpeg) <= limit:
+            return jpeg
     if len(jpeg) < 80:
         raise _error("产品图片压缩失败")
     return jpeg
-
-
-def _build_et_cell_image_data() -> bytes:
-    payload = Path(__file__).with_name("kyd_et_cell_image_data.bin")
-    if not payload.exists():
-        raise _error("缺少快越达 ETCellImageData 原件")
-    return payload.read_bytes()
 
 
 def _rebuild_index_dbcell(book: bytearray) -> None:
@@ -498,6 +496,19 @@ def parse_mulblank(payload: bytes) -> tuple[int, int, int, list[int]]:
     return row, first, last, xfs
 
 
+def pack_mulblank(row: int, first: int, last: int, xfs: list[int]) -> bytes:
+    if last < first or not xfs:
+        return b""
+    if len(xfs) != last - first + 1:
+        raise _error("MULBLANK 样式数量不一致")
+    if first == last:
+        return pack_blank(row, first, xfs[0])
+    payload = struct.pack("<HH", row, first)
+    payload += b"".join(struct.pack("<H", xf) for xf in xfs)
+    payload += struct.pack("<H", last)
+    return rec_bytes(REC_MULBLANK, payload)
+
+
 def _records_in_row(book: bytes | bytearray, start: int, end: int, row: int):
     found = []
     for pos, rec, ln, payload in iter_biff(book):
@@ -527,40 +538,6 @@ def _xf_map(records) -> dict[int, int]:
             row, col, xf = struct.unpack_from("<HHH", payload, 0)
             mapping[col] = xf
     return mapping
-
-
-def lookup_address(path: Path, warehouse: str) -> AddressRow:
-    import xlrd
-
-    wb = xlrd.open_workbook(str(path), on_demand=True)
-    try:
-        names = wb.sheet_names()
-        if "地址库" not in names:
-            raise _error("快越达模版缺少工作表【地址库】")
-        sheet = wb.sheet_by_name("地址库")
-        target = warehouse.strip().upper()
-        for row in range(1, sheet.nrows):
-            code = str(sheet.cell_value(row, 0)).strip().upper()
-            if code != target:
-                continue
-            phone = sheet.cell_value(row, 4)
-            zip_code = sheet.cell_value(row, 12)
-            return AddressRow(
-                warehouse=str(sheet.cell_value(row, 0)).strip(),
-                contact=str(sheet.cell_value(row, 2) or "").strip(),
-                company=str(sheet.cell_value(row, 3) or "").strip(),
-                phone=float(phone) if phone not in ("", None) else None,
-                address1=str(sheet.cell_value(row, 6) or "").strip(),
-                address2=str(sheet.cell_value(row, 7) or "").strip(),
-                city=str(sheet.cell_value(row, 9) or "").strip(),
-                state=str(sheet.cell_value(row, 10) or "").strip(),
-                country=str(sheet.cell_value(row, 11) or "").strip(),
-                zip_code=float(zip_code) if zip_code not in ("", None) else None,
-            )
-    finally:
-        wb.release_resources()
-
-    raise _error(f"地址库没有仓库 {warehouse}")
 
 
 def _pack_art(typ: int, body: bytes, *, ver: int = 0, inst: int = 0) -> bytes:
@@ -594,6 +571,7 @@ def _build_bse(image: bytes, kind: str) -> bytes:
 def _build_pic_drawing(spid: int, blip_id: int, row: int, name: str) -> bytes:
     fsp = struct.pack("<II", spid, 0x0A00)
     name_utf16 = (name + "\x00").encode("utf-16le")
+    desc = b"\x00\x00"
     fopt_props = b"".join(
         [
             struct.pack("<HI", 0x007F, 0x00800080),
@@ -602,24 +580,25 @@ def _build_pic_drawing(spid: int, blip_id: int, row: int, name: str) -> bytes:
             struct.pack("<HI", 0x01FF, 524288),
             struct.pack("<HI", 0x033F, 1048592),
             struct.pack("<HI", 0x8380, len(name_utf16)),
+            struct.pack("<HI", 0x8381, len(desc)),
         ]
     )
-    fopt = fopt_props + name_utf16
+    fopt = fopt_props + name_utf16 + desc
     anchor = struct.pack(
         "<9H",
         2,
         PIC_COL,
-        343,
+        315,
         row,
-        13,
+        20,
         PIC_COL,
-        691,
+        720,
         row,
-        250,
+        241,
     )
     inner = (
         _pack_art(0xF00A, fsp, ver=2, inst=75)
-        + _pack_art(0xF00B, fopt, ver=3, inst=6)
+        + _pack_art(0xF00B, fopt, ver=3, inst=7)
         + _pack_art(0xF010, anchor)
         + _pack_art(0xF011, b"")
     )
@@ -817,16 +796,48 @@ def _set_labelsst(
     row: int,
     col: int,
     index: int,
-) -> None:
+) -> bool:
+    """写入 LABELSST。若该格是空白/MULBLANK，则插入新记录。返回是否新增了单元格引用。"""
+
     for pos, rec, ln, payload in iter_biff(book):
         if pos < start or pos >= end:
             continue
-        if rec != REC_LABELSST or ln != 10:
-            continue
-        rec_row, rec_col, xf, old = struct.unpack("<HHHI", payload)
-        if rec_row == row and rec_col == col:
-            book[pos + 4 : pos + 14] = struct.pack("<HHHI", row, col, xf, index)
-            return
+        if rec == REC_LABELSST and ln == 10:
+            rec_row, rec_col, xf, _old = struct.unpack("<HHHI", payload)
+            if rec_row == row and rec_col == col:
+                book[pos + 4 : pos + 14] = struct.pack("<HHHI", row, col, xf, index)
+                return False
+        if rec == REC_BLANK and ln >= 6:
+            rec_row, rec_col, xf = struct.unpack_from("<HHH", payload, 0)
+            if rec_row == row and rec_col == col:
+                replace_bytes(
+                    book,
+                    pos,
+                    pos + 4 + ln,
+                    pack_labelsst(row, col, xf, index),
+                )
+                return True
+        if rec == REC_NUMBER and ln >= 14:
+            rec_row, rec_col, xf = struct.unpack_from("<HHH", payload, 0)
+            if rec_row == row and rec_col == col:
+                replace_bytes(
+                    book,
+                    pos,
+                    pos + 4 + ln,
+                    pack_labelsst(row, col, xf, index),
+                )
+                return True
+        if rec == REC_MULBLANK:
+            rec_row, first, last, xfs = parse_mulblank(payload)
+            if rec_row != row or col < first or col > last:
+                continue
+            offset = col - first
+            xf = xfs[offset]
+            left = pack_mulblank(row, first, col - 1, xfs[:offset])
+            mid = pack_labelsst(row, col, xf, index)
+            right = pack_mulblank(row, col + 1, last, xfs[offset + 1 :])
+            replace_bytes(book, pos, pos + 4 + ln, left + mid + right)
+            return True
     raise _error(f"找不到文本单元格 r{row + 1}c{col + 1}")
 
 
@@ -889,11 +900,13 @@ def _fill_data_row(
             continue
         if col == 8 and formula_i is not None:
             value = values[col] if col < len(values) else None
+            # 模板从第 38 行起「总申报」是共享公式。原样写回会拆掉 SHRFMLA，
+            # Excel/快越达会把同行海关编码看成空，10 箱时图也可能全部读空。
+            # 1–6 箱走的是第 30–35 行，本来就没有这条公式，不受影响。
             if _is_number(value):
-                formula_i[4 + 6 : 4 + 14] = struct.pack("<d", float(value))
+                out.extend(pack_number(row, col, xf, float(value)))
             else:
-                formula_i[4 + 6 : 4 + 14] = b"\x00\x00\x00\x00\x00\x00\xff\xff"
-            out.extend(formula_i)
+                out.extend(pack_blank(row, col, xf))
             continue
         value = values[col] if col < len(values) else None
         out.extend(
@@ -910,6 +923,23 @@ def _fill_data_row(
     replace_bytes(book, first, last_end, bytes(out))
 
 
+def _clear_shared_total_formulas(book: bytearray, start: int, end: int) -> None:
+    """清掉模板里残留的「总申报」共享公式，避免填过第 38 行后公式定义丢失。"""
+    ops: list[tuple[int, int, bytes]] = []
+    for pos, rec, ln, payload in iter_biff(book):
+        if pos < start or pos >= end:
+            continue
+        if rec == REC_SHRFMLA:
+            ops.append((pos, pos + 4 + ln, b""))
+            continue
+        if rec == REC_FORMULA and len(payload) >= 6:
+            row, col, xf = struct.unpack_from("<HHH", payload, 0)
+            if col == 8 and row >= DATA_START_ROW:
+                ops.append((pos, pos + 4 + ln, pack_blank(row, col, xf)))
+    for pos, end_pos, data in reversed(ops):
+        replace_bytes(book, pos, end_pos, data)
+
+
 def fill_kyd_template(
     dest: Path,
     *,
@@ -921,7 +951,9 @@ def fill_kyd_template(
     if not lines:
         raise _error("KYD 合并没有明细行")
 
-    address = lookup_address(dest, warehouse)
+    from app.services.address_library import lookup_kyd_address
+
+    address = lookup_kyd_address(warehouse)
     import xlrd
 
     wb = xlrd.open_workbook(str(dest), on_demand=True, formatting_info=True)
@@ -937,6 +969,10 @@ def fill_kyd_template(
     channel_idx = sst_index(strings, channel, added)
     warehouse_idx = sst_index(strings, warehouse, added)
 
+    jpeg_budget = 1600
+    if len(lines) > 6:
+        jpeg_budget = max(180, 6800 // len(lines) - 90)
+
     prepared_lines = []
     for line in lines:
         if not line.image_bytes:
@@ -944,7 +980,7 @@ def fill_kyd_template(
         prepared_lines.append(
             KydLine(
                 cells=line.cells,
-                image_bytes=prepare_kyd_picture(line.image_bytes),
+                image_bytes=prepare_kyd_picture(line.image_bytes, jpeg_budget),
                 image_kind="jpeg",
             )
         )
@@ -967,9 +1003,11 @@ def fill_kyd_template(
         replace_bytes(book, dg_start, dg_end, new_dg)
 
     start, end = template_sheet_span(book)
-    _set_labelsst(book, start, end, 3, 1, channel_idx)
+    if _set_labelsst(book, start, end, 3, 1, channel_idx):
+        total_holder[0] += 1
     start, end = template_sheet_span(book)
-    _set_labelsst(book, start, end, 4, 1, warehouse_idx)
+    if _set_labelsst(book, start, end, 4, 1, warehouse_idx):
+        total_holder[0] += 1
 
     start, end = template_sheet_span(book)
     _patch_formula_cache(book, start, end, 5, 1, text=address.contact or warehouse)
@@ -1007,6 +1045,9 @@ def fill_kyd_template(
             total_holder,
         )
 
+    start, end = template_sheet_span(book)
+    _clear_shared_total_formulas(book, start, end)
+
     if images:
         start, end = template_sheet_span(book)
         max_obj, max_spid = _max_shape_ids(book)
@@ -1035,7 +1076,8 @@ def fill_kyd_template(
             obj_id = max_obj + offset + 1
             spid = max_spid + offset + 1
             last_spid = spid
-            name = "HTCI_" + hashlib.md5(line.image_bytes + bytes([offset])).hexdigest().upper()[:32]
+            image_id = hashlib.md5(line.image_bytes + bytes([offset])).hexdigest().upper()
+            name = "ID_" + image_id
             drawing = _build_pic_drawing(spid, blip_id, DATA_START_ROW + offset, name)
             extra_draw += len(drawing)
             pic_records.extend(rec_bytes(REC_MSODRAWING, drawing))
@@ -1099,7 +1141,6 @@ def fill_kyd_template(
     _rebuild_index_dbcell(book)
     update_boundsheet_offsets(book)
     write_workbook_stream(dest, bytes(book))
-    write_named_stream(dest, "ETCellImageData", _build_et_cell_image_data())
 
 
 def _append_sst_strings(book: bytearray, added: list[str], new_total: int) -> None:
@@ -1154,12 +1195,16 @@ def set_kyd_text_cell(
     added: list[str] = []
     index = sst_index(strings, text, added)
     start, end = sheet_span_by_name(book, sheet_name)
-    _set_labelsst(book, start, end, row, col, index)
+    inserted = _set_labelsst(book, start, end, row, col, index)
 
-    if added:
+    if added or inserted:
         _sst_start, _sst_end, sst_payload = _sst_span(book)
         orig_total = struct.unpack_from("<I", sst_payload, 0)[0]
-        _append_sst_strings(book, added, orig_total)
+        _append_sst_strings(
+            book,
+            added,
+            orig_total + (1 if inserted else 0),
+        )
         _rebuild_index_dbcell(book)
         update_boundsheet_offsets(book)
 

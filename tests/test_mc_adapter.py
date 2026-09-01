@@ -114,4 +114,13 @@ def test_merge_group_copies_official_template(tmp_path):
     assert str(ws["A18"].value).strip() == "FBA33U000001"
     assert ws["R18"].value == "https://example.com/demo.jpg"
     assert "_MergeMeta" not in wb.sheetnames
+
+    addr = wb["地址库"]
+    codes = []
+    for row in range(2, addr.max_row + 1):
+        code = str(addr.cell(row, 2).value or "").strip().upper()
+        if code:
+            codes.append(code)
+    assert "GYR2" in codes
+    assert f"$N${len(codes) + 1}" in str(ws["B6"].value)
     wb.close()

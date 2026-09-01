@@ -18,6 +18,8 @@ from app.pages.inquiry_page import InquiryPage
 from app.pages.invoice_page import InvoicePage
 from app.pages.batch_edit_page import BatchEditPage
 from app.pages.sensitive_page import SensitivePage
+from app.pages.maintain_page import MaintainPage
+from app.version import APP_NAME, APP_VERSION_LABEL
 
 
 class MainWindow(QMainWindow):
@@ -25,7 +27,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("发票合并系统 v1.0.0")
+        self.setWindowTitle(f"{APP_NAME} {APP_VERSION_LABEL}")
         self.resize(1550, 920)
         self.setMinimumSize(1250, 760)
 
@@ -59,7 +61,7 @@ class MainWindow(QMainWindow):
         title = QLabel("发票合并系统")
         title.setObjectName("AppTitle")
 
-        version = QLabel("v1.0.0")
+        version = QLabel(APP_VERSION_LABEL)
         version.setObjectName("AppVersion")
 
         sidebar_layout.addWidget(title)
@@ -72,6 +74,7 @@ class MainWindow(QMainWindow):
             ("invoice", "▧  发票中心"),
             ("batch_edit", "✎  批量修改单元格值"),
             ("sensitive", "⚠  敏感词检查"),
+            ("maintain", "⚙  维护"),
         ]
 
         for route, text in nav_items:
@@ -110,7 +113,7 @@ class MainWindow(QMainWindow):
         system_info = QLabel(
             f"当前用户：{username}\n"
             f"计算机：{computer}\n"
-            f"版本号：v1.0.0"
+            f"版本号：{APP_VERSION_LABEL}"
         )
 
         system_info.setStyleSheet(
@@ -147,6 +150,7 @@ class MainWindow(QMainWindow):
         self.pages["invoice"] = InvoicePage()
         self.pages["batch_edit"] = BatchEditPage()
         self.pages["sensitive"] = SensitivePage()
+        self.pages["maintain"] = MaintainPage()
 
         for page in self.pages.values():
             self.stack.addWidget(page)

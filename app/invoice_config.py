@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 
 SYSTEM_ROOT = Path(
@@ -66,7 +67,20 @@ MC_TEMPLATE_PATH = (
 )
 
 
-LOCAL_ROOT = Path(r"D:\InvoiceMergeSystem")
+CENTRAL_ADDRESS_PATH = (
+    SYSTEM_ROOT.parent.parent
+    / "发货单各源抓取"
+    / "各物流地址库.xlsx"
+)
+
+
+def _local_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(r"D:\InvoiceMergeSystem")
+
+
+LOCAL_ROOT = _local_root()
 
 LOG_ROOT = LOCAL_ROOT / "logs"
 
