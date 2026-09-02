@@ -285,7 +285,7 @@ def _parse_filename(
         rest = stem[match.end():]
     candidate = None
     if "-" in rest:
-        candidate = rest.rsplit("-", 1)[-1].strip() or None
+        candidate = rest.split("-", 1)[-1].strip() or None
     elif rest.strip():
         candidate = rest.strip()
     return filename_month, filename_day, candidate

@@ -7,6 +7,8 @@ from app.invoice_config import CURRENT_CONFIG_INI
 _FALLBACK_NAMES = (
     ("快越达", "KYD"),
     ("迈创", "MC"),
+    ("皓鹏", "HP"),
+    ("利合", "LH"),
 )
 
 
@@ -29,7 +31,7 @@ def carrier_code_from_name(name: str) -> str:
     if not text:
         return ""
     upper = text.upper()
-    if upper in {"KYD", "MC"}:
+    if upper in {"KYD", "MC", "HP", "LH"}:
         return upper
     hints = list(_FALLBACK_NAMES)
     hints.extend(_config_name_hints())

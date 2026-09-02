@@ -102,7 +102,7 @@ def load_nextsls_providers(path=None) -> tuple[NextslsConfig, ...]:
     if not ini_path.exists():
         return ()
     parser = ConfigParser()
-    parser.read(ini_path, encoding="utf-8")
+    parser.read(ini_path, encoding="utf-8-sig")
     found: list[NextslsConfig] = []
     for section in parser.sections():
         if not section.upper().startswith("NEXTSLS."):
@@ -212,7 +212,7 @@ def _account_hint_score(config: NextslsConfig, hint: str) -> int:
     if text in config.name:
         return 100
     core = text
-    for prefix in ("迈创合德", "迈创", "快越达"):
+    for prefix in ("迈创合德", "迈创", "快越达", "皓鹏", "利合"):
         core = core.replace(prefix, "")
     core = core.replace("-", "").strip()
     if len(core) < 2:

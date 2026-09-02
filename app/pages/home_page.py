@@ -143,7 +143,7 @@ class HomePage(QWidget):
             route="tracking",
             icon_text="踪",
             title="发货追踪",
-            description="扫描装箱明细，查看 FBA / SKU / 补货数量",
+            description="扫描装箱明细，按 FBA 查看数量并拉取 Tracking",
             button_text="进入发货追踪",
             main_color="#0F766E",
             light_color="#E6F4F1",

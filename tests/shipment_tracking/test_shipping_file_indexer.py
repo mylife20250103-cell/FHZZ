@@ -40,6 +40,13 @@ def test_index_single_batch_under_month_date(tmp_path):
     assert item.path == file_path.resolve()
 
 
+def test_index_keeps_forwarder_when_filename_has_channel_suffix(tmp_path):
+    root = tmp_path / "装箱明细"
+    _touch(root / "英1" / "2026.7" / "7.31英1" / "0731-英1-利合卡航递延-卡派.xlsm")
+    files = index_shipping_files(root)
+    assert files[0].candidate_forwarder == "利合卡航递延-卡派"
+
+
 def test_index_numeric_batch_folders(tmp_path):
     root = tmp_path / "装箱明细"
     first = root / "美3" / "2026.6" / "6.11美3" / "1" / "0611-美3-迈创合德.xlsm"
