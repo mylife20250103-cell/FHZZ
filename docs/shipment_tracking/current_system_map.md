@@ -2,6 +2,7 @@
 
 PHASE 0 / Task 0.1（2026-09-01）。  
 PHASE 0 / Task 0.2（2026-09-01）：Channel / Tracking 绑定点专项调查（第 21–25 节）。  
+PHASE 1 / 物流绑定（2026-09-01）：发货规划 FBA 只读匹配发票批次 `snapshot.json` 的确认货代（`CarrierCode`）；跳过 `INVALIDATED`；文件名物流商仅作候选。  
 
 范围：`D:\InvoiceMergeSystem` 现有代码 + 真实目录 `I:\OneDrive\OneDrive - Lion\【采购仓储】\【装箱明细】` 抽样 + `发票系统\全部发票汇总` / `询价路径` 抽样。  
 本文件只描述数据是什么、何时可信。不设计表、不实现 Parser、不接 API。
@@ -671,11 +672,21 @@ BL / Waybill
 ChannelCode
 ```
 
-推荐后续 Logistics Binding（待人工确认，本 Task 不实现）：
+已实现（只读，不写库、不改合并）：
+
+```text
+发货规划 FBA
+  → BATCH_ROOT/**/snapshot.json  Files[].fba_batch + carrier_code
+  → 跳过 status.json Status=INVALIDATED
+  → 同店同 FBA 多个 CarrierCode → 冲突
+  → 扫描未覆盖 → 未绑定
+文件名「快越达」等 → 候选货代，不当确认
+```
+
+Channel / Tracking 仍待后续：
 
 ```text
 FBA
-+ CarrierCode
 + ChannelText（从合并结果读，不要从 _SystemMeta.ChannelCell 当渠道名）
 + Tracking：未来 人工录入 或 货代API
     查询键待 API 文档，禁止假设等于 FBA

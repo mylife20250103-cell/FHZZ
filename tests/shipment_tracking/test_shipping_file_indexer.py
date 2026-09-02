@@ -6,6 +6,10 @@ from pathlib import Path
 from app.shipment_tracking.indexing.shipping_file_indexer import (
     index_shipping_files,
     list_store_codes,
+    list_store_periods,
+    matches_date_range,
+    matches_period,
+    period_label,
 )
 
 
@@ -83,3 +87,62 @@ def test_index_can_filter_one_store(tmp_path):
     only_three = index_shipping_files(root, store_code="美3")
     assert len(only_three) == 1
     assert only_three[0].store_code == "美3"
+
+
+def test_list_store_periods_newest_first(tmp_path):
+    root = tmp_path / "装箱明细"
+    _touch(root / "美3" / "2026.6" / "6.11美3" / "0611-美3-迈创合德.xlsm")
+    _touch(root / "美3" / "2026.8" / "8.21美3" / "0811-美3-快越达.xlsm")
+    _touch(root / "美3" / "2.6EM" / "0206-美3-某某.xlsm")
+
+    files = index_shipping_files(root, store_code="美3")
+    periods = list_store_periods(root, "美3")
+    assert periods[0] == (2026, 8)
+    assert periods[1] == (2026, 6)
+    assert (None, 2) in periods
+    assert period_label(2026, 8) == "2026.08"
+    kept = [item for item in files if matches_period(item, 2026, 8)]
+    assert len(kept) == 1
+    assert kept[0].month == 8
+    assert all(matches_period(item, None, None, all_periods=True) for item in files)
+
+
+def test_list_store_periods_can_union_all_stores(tmp_path):
+    root = tmp_path / "装箱明细"
+    _touch(root / "美3" / "2026.6" / "6.11美3" / "0611-美3-迈创合德.xlsm")
+    _touch(root / "美10" / "2026.08" / "8.19美10" / "0819-美10-快越达.xlsm")
+
+    periods = list_store_periods(root)
+    assert periods[0] == (2026, 8)
+    assert periods[1] == (2026, 6)
+
+
+def test_matches_date_range_uses_ship_date(tmp_path):
+    root = tmp_path / "装箱明细"
+    _touch(root / "美3" / "2026.6" / "6.11美3" / "0611-美3-迈创合德.xlsm")
+    _touch(root / "美3" / "2026.8" / "8.21美3" / "0811-美3-快越达.xlsm")
+    _touch(root / "美3" / "2.6EM" / "0206-美3-某某.xlsm")
+    files = index_shipping_files(root, store_code="美3")
+    kept = [
+        item
+        for item in files
+        if matches_date_range(item, date(2026, 8, 1), date(2026, 8, 31))
+    ]
+    assert [item.ship_date for item in kept] == [date(2026, 8, 21)]
+    swapped = [
+        item
+        for item in files
+        if matches_date_range(item, date(2026, 8, 31), date(2026, 8, 1))
+    ]
+    assert swapped == kept
+
+
+def test_matches_date_range_includes_month_folder_without_day(tmp_path):
+    root = tmp_path / "装箱明细"
+    _touch(root / "美3" / "2026.8" / "0811-美3-快越达.xlsm")
+    files = index_shipping_files(root, store_code="美3")
+    assert files[0].ship_date is None
+    assert files[0].year == 2026
+    assert files[0].month == 8
+    assert matches_date_range(files[0], date(2026, 8, 10), date(2026, 8, 20))
+    assert not matches_date_range(files[0], date(2026, 7, 1), date(2026, 7, 31))

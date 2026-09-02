@@ -138,7 +138,7 @@ def _read_sku_items(worksheet, fba_columns: list[dict]) -> dict[int, list[Parsed
         asin = _text(worksheet.cell(row, 5).value) or None
         en = _text(worksheet.cell(row, 1).value)
         cn = _text(worksheet.cell(row, 8).value)
-        product_name = en or cn or None
+        product_name = cn or en or None
         for column in fba_columns:
             qty = _quantity(worksheet.cell(row, column["col"]).value)
             if qty <= 0:

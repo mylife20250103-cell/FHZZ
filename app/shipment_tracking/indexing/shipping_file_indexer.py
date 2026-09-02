@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -27,6 +28,64 @@ class IndexedShippingFile:
     filename_day: int | None
     batch_no: int
     candidate_forwarder: str | None
+
+
+def list_store_periods(
+    root,
+    store_code: str | None = None,
+) -> tuple[tuple[int | None, int | None], ...]:
+    """店铺下出现过的 (年, 月)，新的在前。store_code 为空则合并全部店铺。不打开 Excel。"""
+
+    seen: set[tuple[int | None, int | None]] = set()
+    ordered: list[tuple[int | None, int | None]] = []
+    for item in index_shipping_files(root, store_code=store_code):
+        key = (item.year, item.month)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(key)
+    ordered.sort(
+        key=lambda pair: (pair[0] is None, -(pair[0] or 0), -(pair[1] or 0))
+    )
+    return tuple(ordered)
+
+
+def period_label(year: int | None, month: int | None) -> str:
+    if year and month:
+        return f"{year}.{month:02d}"
+    if month:
+        return f"{month}月（无年份）"
+    return "未识别月份"
+
+
+def matches_period(
+    item: IndexedShippingFile,
+    year: int | None,
+    month: int | None,
+    *,
+    all_periods: bool = False,
+) -> bool:
+    if all_periods:
+        return True
+    return item.year == year and item.month == month
+
+
+def matches_date_range(
+    item: IndexedShippingFile,
+    start: date,
+    end: date,
+) -> bool:
+    """按发货日期过滤；没有具体日则看整个月份是否和区间重叠。"""
+
+    if start > end:
+        start, end = end, start
+    if item.ship_date is not None:
+        return start <= item.ship_date <= end
+    if item.year and item.month:
+        month_start = date(item.year, item.month, 1)
+        month_end = date(item.year, item.month, monthrange(item.year, item.month)[1])
+        return month_start <= end and month_end >= start
+    return False
 
 
 def index_shipping_files(

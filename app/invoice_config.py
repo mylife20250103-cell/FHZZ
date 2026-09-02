@@ -38,6 +38,13 @@ CURRENT_CONFIG_INI = (
 )
 
 
+FORWARDER_API_INI = (
+    SYSTEM_ROOT
+    / "公共配置"
+    / "forwarder_api.ini"
+)
+
+
 INVOICE_MANUAL_SCAN_ROOT = (
     SYSTEM_ROOT.parent / "物流商发票"
 )

@@ -104,6 +104,8 @@ def test_parse_keeps_fba_carton_sku_qty(tmp_path):
     assert carton.fba_id == "FBA19AAA"
     skus = {item.sku: item.quantity for item in carton.items}
     assert skus == {"SKU-A": 20, "SKU-B": 10}
+    names = {item.sku: item.product_name for item in carton.items}
+    assert names == {"SKU-A": "甲", "SKU-B": "乙"}
 
 
 def test_one_fba_one_sku(tmp_path):

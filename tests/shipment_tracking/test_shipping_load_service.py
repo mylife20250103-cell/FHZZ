@@ -66,7 +66,121 @@ def test_load_store_skips_unreadable_file(tmp_path):
     bad.parent.mkdir(parents=True, exist_ok=True)
     bad.write_bytes(b"not-excel")
 
-    result = load_store_snapshots(root, "美3")
+    result = load_store_snapshots(
+        root,
+        "美3",
+        batch_root=tmp_path / "batches",
+        merge_root=tmp_path / "merges",
+    )
     assert len(result.snapshots) == 1
     assert result.snapshots[0].aggregated[0].items[0].quantity == 8
     assert any("坏文件" in item for item in result.errors)
+    assert result.forwarders == {}
+    assert result.channels == {}
+
+
+def test_load_store_attaches_confirmed_forwarder(tmp_path):
+    from app.json_io import write_json
+
+    root = tmp_path / "装箱明细"
+    plan = root / "美3" / "2026.6" / "6.11美3" / "0611-美3-迈创合德.xlsx"
+    _write_plan(plan, "FBA-A", "SKU-A", 8)
+    batch_dir = tmp_path / "batches" / "20260611" / "20260611-B0001"
+    batch_dir.mkdir(parents=True)
+    write_json(
+        batch_dir / "snapshot.json",
+        {
+            "Files": [
+                {
+                    "store_code": "美3",
+                    "fba_batch": "FBA-A",
+                    "carrier_code": "KYD",
+                }
+            ]
+        },
+    )
+    write_json(
+        batch_dir / "status.json",
+        {"Status": "FIRST_SCAN_PASSED"},
+    )
+
+    result = load_store_snapshots(
+        root,
+        "美3",
+        batch_root=tmp_path / "batches",
+        merge_root=tmp_path / "merges",
+    )
+    bound = result.forwarders["FBA-A"]
+    assert bound.state == "confirmed"
+    assert bound.carrier_code == "KYD"
+
+
+def test_load_store_can_limit_to_one_month(tmp_path):
+    root = tmp_path / "装箱明细"
+    june = root / "美3" / "2026.6" / "6.11美3" / "0611-美3-迈创合德.xlsx"
+    august = root / "美3" / "2026.8" / "8.21美3" / "0821-美3-快越达.xlsx"
+    _write_plan(june, "FBA-A", "SKU-A", 8)
+    _write_plan(august, "FBA-B", "SKU-B", 3)
+
+    june_only = load_store_snapshots(
+        root,
+        "美3",
+        batch_root=tmp_path / "batches",
+        merge_root=tmp_path / "merges",
+        year=2026,
+        month=6,
+        all_periods=False,
+    )
+    assert len(june_only.snapshots) == 1
+    assert june_only.snapshots[0].aggregated[0].fba_id == "FBA-A"
+
+    all_months = load_store_snapshots(
+        root,
+        "美3",
+        batch_root=tmp_path / "batches",
+        merge_root=tmp_path / "merges",
+        all_periods=True,
+    )
+    assert len(all_months.snapshots) == 2
+
+
+def test_load_store_can_limit_to_date_range(tmp_path):
+    root = tmp_path / "装箱明细"
+    june = root / "美3" / "2026.6" / "6.11美3" / "0611-美3-迈创合德.xlsx"
+    august = root / "美3" / "2026.8" / "8.21美3" / "0821-美3-快越达.xlsx"
+    _write_plan(june, "FBA-A", "SKU-A", 8)
+    _write_plan(august, "FBA-B", "SKU-B", 3)
+
+    ranged = load_store_snapshots(
+        root,
+        "美3",
+        batch_root=tmp_path / "batches",
+        merge_root=tmp_path / "merges",
+        start_date=date(2026, 8, 1),
+        end_date=date(2026, 8, 31),
+    )
+    assert len(ranged.snapshots) == 1
+    assert ranged.snapshots[0].aggregated[0].fba_id == "FBA-B"
+
+
+def test_load_store_can_scan_all_stores_in_date_range(tmp_path):
+    root = tmp_path / "装箱明细"
+    store_three = root / "美3" / "2026.8" / "8.21美3" / "0821-美3-快越达.xlsx"
+    store_ten = root / "美10" / "2026.8" / "8.19美10" / "0819-美10-迈创合德.xlsx"
+    other_month = root / "美3" / "2026.6" / "6.11美3" / "0611-美3-迈创合德.xlsx"
+    _write_plan(store_three, "FBA-A", "SKU-A", 8)
+    _write_plan(store_ten, "FBA-B", "SKU-B", 3)
+    _write_plan(other_month, "FBA-C", "SKU-C", 5)
+
+    ranged = load_store_snapshots(
+        root,
+        None,
+        batch_root=tmp_path / "batches",
+        merge_root=tmp_path / "merges",
+        start_date=date(2026, 8, 1),
+        end_date=date(2026, 8, 31),
+    )
+    fbas = {snap.aggregated[0].fba_id for snap in ranged.snapshots}
+    stores = {snap.source.store_code for snap in ranged.snapshots}
+    assert fbas == {"FBA-A", "FBA-B"}
+    assert stores == {"美3", "美10"}
