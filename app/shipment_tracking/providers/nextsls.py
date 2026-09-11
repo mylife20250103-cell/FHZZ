@@ -26,6 +26,7 @@ class NextslsHit:
     tracking_number: str
     shipment_id: str
     status_text: str
+    latest_event: str = ""
 
 
 class NextslsError(Exception):
@@ -227,30 +228,54 @@ def _account_hint_score(config: NextslsConfig, hint: str) -> int:
     return score
 
 
+def format_latest_trace(traces) -> str:
+    """路由信息里时间最新的一条：时间 + 内容。"""
+
+    items = [item for item in (traces or ()) if item.time_text or item.info]
+    if not items:
+        return ""
+    dated = [item for item in items if item.time_text]
+    chosen = max(dated, key=lambda item: item.time_text) if dated else items[0]
+    return " ".join(part for part in (chosen.time_text, chosen.info) if part)
+
+
 def query_by_fba(fba_id: str, config: NextslsConfig) -> NextslsHit | None:
     """用 FBA 查货代运单号。一票多单时用轨迹/转单号，并核对箱号是否含该 FBA。"""
 
     key = (fba_id or "").strip().upper()
     if not key:
         return None
-    ext_payload = _lookup_payload(ext_numbers=key)
-    body = _post(config, "/api/v5/shipment/get_info", ext_payload)
+    payload = _lookup_payload(ext_numbers=key)
+    track: dict = {}
+    hit = None
+    body = _post(config, "/api/v5/shipment/get_info", payload)
     if _usable_shipment(body, key):
-        return _hit_from_body(body, key)
-    nums = _try_post(config, "/api/v5/shipment/get_tracking_numbers", ext_payload)
-    if _usable_shipment(nums, key):
-        return _hit_from_body(nums, key)
-    track = _try_tracking(config, ext_payload)
-    if _usable_shipment(track, key):
-        return _hit_from_body(track, key)
-    body = _post(
-        config,
-        "/api/v5/shipment/get_info",
-        _lookup_payload(client_reference=key),
+        hit = _hit_from_body(body, key)
+    else:
+        nums = _try_post(config, "/api/v5/shipment/get_tracking_numbers", payload)
+        if _usable_shipment(nums, key):
+            hit = _hit_from_body(nums, key)
+        else:
+            track = _try_tracking(config, payload)
+            if _usable_shipment(track, key):
+                hit = _hit_from_body(track, key)
+            else:
+                payload = _lookup_payload(client_reference=key)
+                body = _post(config, "/api/v5/shipment/get_info", payload)
+                if _usable_shipment(body, key):
+                    hit = _hit_from_body(body, key)
+    if hit is None:
+        return None
+    if not track:
+        track = _try_tracking(config, payload)
+    latest = format_latest_trace(_traces_from_track_body(track))
+    return NextslsHit(
+        fba_id=hit.fba_id,
+        tracking_number=hit.tracking_number,
+        shipment_id=hit.shipment_id,
+        status_text=hit.status_text,
+        latest_event=latest,
     )
-    if _usable_shipment(body, key):
-        return _hit_from_body(body, key)
-    return None
 
 
 def load_shipment_detail(
@@ -567,6 +592,14 @@ def _parse_traces(rows: list) -> list[ShipmentTrace]:
             )
         )
     return traces
+
+
+def _traces_from_track_body(body: dict) -> list[ShipmentTrace]:
+    ship = ((body or {}).get("data") or {}).get("shipment")
+    if not isinstance(ship, dict):
+        return []
+    raw = ship.get("traces") or []
+    return _parse_traces(raw if isinstance(raw, list) else [])
 
 
 def _parse_parcels(rows: list, status_text: str) -> list[ShipmentParcelRow]:

@@ -2,7 +2,7 @@ from app.pages.tracking_page import row_matches
 
 
 def _row(sku: str, name: str, tracking: str = "", fba: str = "") -> list[str]:
-    values = [""] * 13
+    values = [""] * 14
     values[7] = fba
     values[8] = tracking
     values[10] = sku

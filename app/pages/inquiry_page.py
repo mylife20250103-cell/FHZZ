@@ -27,6 +27,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.date_ids import (
+    format_date_id_range,
+    iter_date_ids,
+    today_date_id,
+)
 from app.inquiry_config import (
     INQUIRY_SOURCE_ROOT,
 )
@@ -34,6 +39,7 @@ from app.inquiry_config import (
 from app.services.inquiry_service import (
     ScanResult,
     generate_inquiry_summary,
+    inquiry_directories_for_range,
     resolve_inquiry_scan_directories,
     scan_inquiry_batch,
 )
@@ -84,8 +90,9 @@ class InquiryPage(QWidget):
         )
 
         subtitle = QLabel(
-            "扫描当天询价明细，"
-            "校验后按仓库生成统一询价汇总"
+            "按日期范围扫描询价明细，"
+            "校验后按仓库生成统一询价汇总。"
+            "汇总表始终写到今天。"
         )
 
         subtitle.setObjectName(
@@ -117,7 +124,7 @@ class InquiryPage(QWidget):
         )
 
         section_title = QLabel(
-            "1  选择询价日期"
+            "1  选择询价日期范围"
         )
 
         section_title.setObjectName(
@@ -131,32 +138,40 @@ class InquiryPage(QWidget):
         controls = QHBoxLayout()
 
         controls.addWidget(
-            QLabel("DateID：")
+            QLabel("从")
         )
 
-        self.date_edit = QDateEdit()
-
-        self.date_edit.setCalendarPopup(
-            True
-        )
-
-        self.date_edit.setDisplayFormat(
-            "yyyy-MM-dd"
-        )
-
-        self.date_edit.setDate(
-            QDate.currentDate()
-        )
-
-        self.date_edit.dateChanged.connect(
+        self.range_from = QDateEdit()
+        self.range_from.setCalendarPopup(True)
+        self.range_from.setDisplayFormat("yyyy-MM-dd")
+        self.range_from.setDate(QDate.currentDate())
+        self.range_from.dateChanged.connect(
             self.refresh_source_label
         )
+        controls.addWidget(self.range_from)
 
         controls.addWidget(
-            self.date_edit
+            QLabel("到")
         )
 
-        controls.addSpacing(25)
+        self.range_to = QDateEdit()
+        self.range_to.setCalendarPopup(True)
+        self.range_to.setDisplayFormat("yyyy-MM-dd")
+        self.range_to.setDate(QDate.currentDate())
+        self.range_to.dateChanged.connect(
+            self.refresh_source_label
+        )
+        controls.addWidget(self.range_to)
+
+        self.output_date_label = QLabel()
+        self.output_date_label.setObjectName(
+            "SecondaryText"
+        )
+        controls.addWidget(
+            self.output_date_label
+        )
+
+        controls.addSpacing(16)
 
         self.source_label = QLabel()
 
@@ -245,7 +260,7 @@ class InquiryPage(QWidget):
         )
 
         self.scan_button = QPushButton(
-            "扫描当天询价明细"
+            "扫描询价明细"
         )
 
         self.scan_button.setStyleSheet(
@@ -539,40 +554,52 @@ class InquiryPage(QWidget):
     # 当前日期
     # ==========================================
 
-    def current_date_id(self):
+    def scan_range(self) -> tuple[str, str]:
+        start = self.range_from.date().toString("yyyyMMdd")
+        end = self.range_to.date().toString("yyyyMMdd")
+        if start > end:
+            start, end = end, start
+        return start, end
 
-        return (
-            self.date_edit
-            .date()
-            .toString("yyyyMMdd")
-        )
+    def output_date_id(self):
+        return today_date_id()
 
-    def default_directory(self):
-
-        return (
-            INQUIRY_SOURCE_ROOT
-            / self.current_date_id()
-        )
+    def default_directories(self) -> list[Path]:
+        start, end = self.scan_range()
+        return inquiry_directories_for_range(start, end)
 
     # ==========================================
     # 路径
     # ==========================================
 
     def refresh_source_label(self):
-
+        start, end = self.scan_range()
+        range_text = format_date_id_range(start, end)
+        self.output_date_label.setText(
+            f"输出 DateID：{self.output_date_id()}（今天）"
+        )
+        folders = self.default_directories()
+        if len(folders) == 1:
+            scan_text = str(folders[0])
+        else:
+            scan_text = (
+                f"{INQUIRY_SOURCE_ROOT} "
+                f"（{range_text}，共 {len(folders)} 天）"
+            )
         self.source_label.setText(
             "默认扫描："
-            f"{self.default_directory()}"
+            f"{scan_text}"
         )
 
     def open_inquiry_path(self):
-
-        directory = self.default_directory()
+        start, end = self.scan_range()
+        folders = self.default_directories()
+        directory = folders[0] if start == end else INQUIRY_SOURCE_ROOT
         if not directory.exists():
             QMessageBox.warning(
                 self,
                 "找不到目录",
-                "当天询价路径还不存在：\n\n"
+                "询价路径还不存在：\n\n"
                 f"{directory}",
             )
             return
@@ -630,11 +657,11 @@ class InquiryPage(QWidget):
 
         self._run_scan(
             resolve_inquiry_scan_directories(
-                default_directory=self.default_directory(),
+                default_directories=self.default_directories(),
                 extra_directories=self.extra_directories,
                 extra_only=False,
             ),
-            empty_message="当天询价目录不存在，请先确认日期。",
+            empty_message="所选日期范围内没有询价目录，请先确认日期。",
         )
 
     def scan_extra(self):
@@ -650,7 +677,7 @@ class InquiryPage(QWidget):
 
         self._run_scan(
             resolve_inquiry_scan_directories(
-                default_directory=self.default_directory(),
+                default_directories=self.default_directories(),
                 extra_directories=self.extra_directories,
                 extra_only=True,
             ),
@@ -672,9 +699,9 @@ class InquiryPage(QWidget):
             )
             return
 
-        date_id = (
-            self.current_date_id()
-        )
+        start, end = self.scan_range()
+        date_id = self.output_date_id()
+        allowed_date_ids = iter_date_ids(start, end)
 
         self.generate_button.setEnabled(
             False
@@ -697,6 +724,7 @@ class InquiryPage(QWidget):
             result = scan_inquiry_batch(
                 date_id=date_id,
                 directories=directories,
+                allowed_date_ids=allowed_date_ids,
             )
 
         finally:
@@ -836,6 +864,8 @@ class InquiryPage(QWidget):
             "确认生成",
             (
                 "确认根据当前扫描结果生成询价表？\n\n"
+                f"输出 DateID："
+                f"{self.output_date_id()}（今天）\n"
                 f"仓库："
                 f"{self.scan_result.warehouse_count}\n"
                 f"总箱数："
@@ -856,7 +886,7 @@ class InquiryPage(QWidget):
             output_path = (
                 generate_inquiry_summary(
                     date_id=(
-                        self.current_date_id()
+                        self.output_date_id()
                     ),
                     summaries=(
                         self.scan_result.summaries

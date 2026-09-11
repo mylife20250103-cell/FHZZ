@@ -83,6 +83,7 @@ def pull_forwarder_tracking(
             fba_id,
             hit.tracking_number,
             source=config.provider_id.lower(),
+            latest_event=hit.latest_event,
             path=overlay_path,
         )
         result.found += 1

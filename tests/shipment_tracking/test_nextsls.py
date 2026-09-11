@@ -6,6 +6,8 @@ from app.shipment_tracking.providers.nextsls import (
     NextslsConfig,
     NextslsError,
     NextslsHit,
+    ShipmentTrace,
+    format_latest_trace,
     load_nextsls_providers,
     load_shipment_detail,
     parse_shipment_detail,
@@ -158,6 +160,7 @@ def test_multiple_shipments_falls_back_to_tracking(monkeypatch):
     hit = query_by_fba("FBA19HB9N07Z", _config("MC"))
     assert hit is not None
     assert hit.tracking_number == "MC010251034"
+    assert "已签收" in hit.latest_event
     from app.shipment_tracking.providers.nextsls import query_shipment_detail
 
     detail = query_shipment_detail("FBA19HB9N07Z", _config("MC"))
@@ -212,7 +215,13 @@ def test_pull_routes_by_carrier_and_skips_manual(tmp_path, monkeypatch):
     def fake_query(fba_id, config):
         used.append(config.carrier_code)
         if fba_id == "FBA-A":
-            return NextslsHit(fba_id, "API-1", "S1", "in_transit")
+            return NextslsHit(
+                fba_id,
+                "API-1",
+                "S1",
+                "in_transit",
+                "2026-09-01 15:40:48 已提柜到海外仓，待拆柜",
+            )
         return None
 
     monkeypatch.setattr(
@@ -237,6 +246,7 @@ def test_pull_routes_by_carrier_and_skips_manual(tmp_path, monkeypatch):
     assert used == ["KYD", "KYD"]
     assert lookup["FBA-A"].tracking_number == "API-1"
     assert lookup["FBA-A"].source == "kyd"
+    assert lookup["FBA-A"].latest_event == "2026-09-01 15:40:48 已提柜到海外仓，待拆柜"
     assert lookup["FBA-MANUAL"].tracking_number == "KEEP"
 
 
@@ -497,3 +507,13 @@ def test_query_shipment_detail_calls_tracking(monkeypatch):
     assert detail is not None
     assert detail.traces[0].info == "已下单"
     assert any(path.endswith("get_tracking") for path in paths)
+
+
+def test_format_latest_trace_picks_newest_time():
+    traces = (
+        ShipmentTrace("2026-08-31 10:00:00", "航班已起飞", ""),
+        ShipmentTrace("2026-09-01 15:40:48", "已提柜到海外仓，待拆柜", ""),
+        ShipmentTrace("2026-08-30 09:00:00", "已报关", ""),
+    )
+    assert format_latest_trace(traces) == "2026-09-01 15:40:48 已提柜到海外仓，待拆柜"
+    assert format_latest_trace(()) == ""

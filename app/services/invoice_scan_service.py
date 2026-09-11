@@ -179,6 +179,18 @@ def load_known_carriers() -> set[str]:
                 match.group(1).upper()
             )
 
+    from app.services.invoice_adapters import list_adapter_ids
+
+    have_adapter = {
+        item.split(":", 1)[0].upper()
+        for item in list_adapter_ids()
+    }
+    result = {
+        code
+        for code in result
+        if code in have_adapter
+    }
+
     if not result:
 
         raise ValueError(
@@ -556,10 +568,13 @@ def _keep_latest_generation(
 def scan_original_invoices(
     date_id: str,
     directories: list[Path],
+    *,
+    allowed_date_ids: list[str] | None = None,
 ) -> ScanResult:
     """
     只扫描未合并发票本身。
     不读取询价明细，不与询价中心对齐。
+    DateID 过滤使用 allowed_date_ids；未传入时仍只收 date_id 当天。
     """
 
     errors = []
@@ -587,6 +602,12 @@ def scan_original_invoices(
 
     files = collect_invoice_files(
         directories
+    )
+
+    allowed_dates = set(
+        allowed_date_ids
+        if allowed_date_ids is not None
+        else [date_id]
     )
 
     if not files:
@@ -622,7 +643,7 @@ def scan_original_invoices(
 
         if (
             meta["DateID"]
-            != date_id
+            not in allowed_dates
         ):
 
             continue

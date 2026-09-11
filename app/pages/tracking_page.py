@@ -34,8 +34,12 @@ from app.shipment_tracking.services.shipping_load_service import (
     load_store_snapshots,
 )
 from app.pages.tracking_detail_dialog import TrackingDetailDialog
-from app.shipment_tracking.providers.nextsls import load_shipment_detail
+from app.shipment_tracking.providers.nextsls import (
+    format_latest_trace,
+    load_shipment_detail,
+)
 from app.shipment_tracking.services.tracking_overlay import (
+    latest_event_for,
     load_tracking_overlay,
     tracking_for,
     upsert_tracking,
@@ -47,6 +51,7 @@ FBA_COL = 7
 TRACKING_COL = 8
 SKU_COL = 10
 NAME_COL = 12
+LATEST_COL = 13
 CONFIRMED_COL = 4
 CHANNEL_COL = 5
 CANDIDATE_COL = 6
@@ -92,6 +97,7 @@ class TrackingPage(QWidget):
         "SKU",
         "数量",
         "产品中文品名",
+        "最新物流信息",
     )
 
     def __init__(self, parent=None):
@@ -113,7 +119,8 @@ class TrackingPage(QWidget):
             "可选全部店铺，再按月份或日期范围扫描，然后用 FBA 号筛选对应行。"
             "默认只扫最近一个月，避免一次打开整店历史。"
             "确认货代来自发票扫描后的 CarrierCode；没有确认时按文件名候选货代（如迈创合德）查询。"
-            "从货代拉取会查当前筛选结果里的全部 FBA；同物流商多个下单账号时，按文件名候选优先匹配（如迈创寻麓→寻麓者）。"
+            "从货代拉取会查当前筛选结果里的全部 FBA，并写入 Tracking 和最新物流信息。"
+            "同物流商多个下单账号时，按文件名候选优先匹配（如迈创寻麓→寻麓者）。"
             "已有 Tracking 时，点击蓝色运单号可查看货代后台同款详情（状态、重量、路由、货箱）。"
         )
         subtitle.setObjectName("PageSubtitle")
@@ -404,6 +411,7 @@ class TrackingPage(QWidget):
                 else:
                     channel_text = ""
                 tracking = tracking_for(fba.fba_id, overlay)
+                latest = latest_event_for(fba.fba_id, overlay)
                 for item in fba.items:
                     rows.append(
                         [
@@ -420,6 +428,7 @@ class TrackingPage(QWidget):
                             item.sku,
                             str(item.quantity),
                             item.product_name or "",
+                            latest,
                         ]
                     )
         confirmed_n = sum(
@@ -509,8 +518,9 @@ class TrackingPage(QWidget):
         sku_q = self.sku_edit.text()
         name_q = self.name_edit.text()
         tracking_q = self.tracking_filter.text()
+        fba_q = self.fba_edit.text()
         for row in self._all_rows:
-            if not row_matches(row, sku_q, name_q, tracking_q):
+            if not row_matches(row, sku_q, name_q, tracking_q, fba_q):
                 continue
             fba_id = row[FBA_COL].strip().upper()
             if fba_id and fba_id not in seen:
@@ -545,7 +555,10 @@ class TrackingPage(QWidget):
         self.pull_btn.setEnabled(True)
         overlay = load_tracking_overlay()
         for row in self._all_rows:
+            while len(row) <= LATEST_COL:
+                row.append("")
             row[TRACKING_COL] = tracking_for(row[FBA_COL], overlay)
+            row[LATEST_COL] = latest_event_for(row[FBA_COL], overlay)
         self._apply_filter()
         message = (
             f"货代拉取完成：找到 {result.found}，"
@@ -615,6 +628,8 @@ class TrackingPage(QWidget):
                     cell.setFont(font)
                     cell.setForeground(QColor("#1565C0"))
                     cell.setToolTip("点击查看货代详情")
+                if col == LATEST_COL and value.strip():
+                    cell.setToolTip(value)
                 self.table.setItem(row, col, cell)
 
     def _on_cell_entered(self, row: int, col: int):
@@ -669,6 +684,25 @@ class TrackingPage(QWidget):
     def _on_detail_ok(self, detail):
         self.scan_btn.setEnabled(True)
         self.pull_btn.setEnabled(True)
+        latest = format_latest_trace(detail.traces)
+        fba_id = (detail.ext_number or "").strip().upper()
+        if fba_id and fba_id != "—" and latest:
+            overlay = load_tracking_overlay()
+            record = overlay.get(fba_id)
+            tracking = detail.title.split("/")[0].replace("#", "").strip()
+            if record:
+                tracking = record.tracking_number or tracking
+                upsert_tracking(
+                    fba_id,
+                    tracking,
+                    source=record.source,
+                    latest_event=latest,
+                    path=TRACKING_STORE_PATH,
+                )
+            for row in self._all_rows:
+                if row[FBA_COL].strip().upper() == fba_id:
+                    row[LATEST_COL] = latest
+            self._apply_filter()
         if self._scan_status:
             self.status_label.setText(self._scan_status)
         TrackingDetailDialog(detail, self).exec()

@@ -11,6 +11,7 @@ from app.shipment_tracking.paths import TRACKING_STORE_PATH
 class TrackingRecord:
     tracking_number: str
     source: str
+    latest_event: str = ""
 
 
 def load_tracking_overlay(path=None) -> dict[str, TrackingRecord]:
@@ -32,7 +33,8 @@ def load_tracking_overlay(path=None) -> dict[str, TrackingRecord]:
         if not number:
             continue
         source = str(item.get("source") or "manual").strip() or "manual"
-        result[fba_id] = TrackingRecord(number, source)
+        latest = str(item.get("latest_event") or "").strip()
+        result[fba_id] = TrackingRecord(number, source, latest)
     return result
 
 
@@ -45,11 +47,21 @@ def tracking_for(
     return record.tracking_number if record else ""
 
 
+def latest_event_for(
+    fba_id: str,
+    lookup: dict[str, TrackingRecord],
+) -> str:
+    key = (fba_id or "").strip().upper()
+    record = lookup.get(key)
+    return record.latest_event if record else ""
+
+
 def upsert_tracking(
     fba_id: str,
     tracking_number: str,
     *,
     source: str = "manual",
+    latest_event: str | None = None,
     path=None,
 ) -> TrackingRecord:
     store = Path(path) if path is not None else TRACKING_STORE_PATH
@@ -67,10 +79,17 @@ def upsert_tracking(
                 payload = loaded
         except Exception:
             payload = {}
-    record = TrackingRecord(number, source.strip() or "manual")
+    previous = payload.get(fba_key) if isinstance(payload.get(fba_key), dict) else {}
+    event = (
+        str(previous.get("latest_event") or "").strip()
+        if latest_event is None
+        else str(latest_event).strip()
+    )
+    record = TrackingRecord(number, source.strip() or "manual", event)
     payload[fba_key] = {
         "tracking_number": record.tracking_number,
         "source": record.source,
+        "latest_event": record.latest_event,
     }
     write_json(store, payload)
     return record

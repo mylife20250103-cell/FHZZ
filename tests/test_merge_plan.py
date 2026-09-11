@@ -48,6 +48,20 @@ def test_second_scan_sets_must_be_equal():
     assert compare_identity_sets(snap, man, scan) == []
 
 
+def test_second_scan_keeps_original_file_date_id():
+    snap = [_item(date_id="20260910")]
+    man = [_item(date_id="20260910", path=r"D:\copied\a.xlsx")]
+    scan = [_item(date_id="20260910", path=r"D:\copied\a.xlsx")]
+    assert compare_identity_sets(snap, man, scan) == []
+
+    mismatched = compare_identity_sets(
+        [_item(date_id="20260910")],
+        [_item(date_id="20260910", path=r"D:\copied\a.xlsx")],
+        [_item(date_id="20260911", path=r"D:\copied\a.xlsx")],
+    )
+    assert any("DateID 不一致" in item for item in mismatched)
+
+
 def test_second_scan_detects_missing_and_sha():
 
     snap = [

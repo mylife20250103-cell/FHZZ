@@ -222,10 +222,9 @@ def run_second_scan(batch: BatchRecord) -> SecondScanResult:
             errors.append(meta_error)
             continue
 
-        if meta["DateID"] != batch.date_id:
+        if not meta.get("DateID"):
             errors.append(
-                f"{path.name}：DateID={meta['DateID']}，"
-                f"应为 {batch.date_id}"
+                f"{path.name}：DateID 为空"
             )
             continue
 

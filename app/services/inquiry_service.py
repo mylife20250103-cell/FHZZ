@@ -11,7 +11,12 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from app.date_ids import (
+    format_date_id_range,
+    iter_date_ids,
+)
 from app.inquiry_config import (
+    INQUIRY_SOURCE_ROOT,
     INQUIRY_RESULT_ROOT,
     INQUIRY_TEMPLATE_PATH,
     INQUIRY_TEMPLATE_SHEET,
@@ -95,17 +100,37 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def inquiry_directories_for_range(
+    start_date_id: str,
+    end_date_id: str,
+    source_root: Path | None = None,
+) -> list[Path]:
+    root = source_root or INQUIRY_SOURCE_ROOT
+    return [
+        root / date_id
+        for date_id in iter_date_ids(
+            start_date_id,
+            end_date_id,
+        )
+    ]
+
+
 def resolve_inquiry_scan_directories(
     *,
-    default_directory: Path,
+    default_directory: Path | None = None,
+    default_directories: list[Path] | None = None,
     extra_directories: list[Path],
     extra_only: bool,
 ) -> list[Path]:
-    """当天扫描只用默认日期目录；临时追加扫描只用手动选择的目录。"""
+    """日期范围扫描用默认日期目录；临时追加扫描只用手动选择的目录。"""
 
     if extra_only:
         return list(extra_directories)
-    return [default_directory]
+    if default_directories is not None:
+        return list(default_directories)
+    if default_directory is not None:
+        return [default_directory]
+    return []
 
 
 def collect_inquiry_files(
@@ -264,9 +289,21 @@ def read_inquiry_file(
 def scan_inquiry_batch(
     date_id: str,
     directories: list[Path],
+    *,
+    allowed_date_ids: list[str] | None = None,
 ) -> ScanResult:
 
     errors = []
+
+    allowed_dates = set(
+        allowed_date_ids
+        if allowed_date_ids is not None
+        else [date_id]
+    )
+    range_text = format_date_id_range(
+        min(allowed_dates),
+        max(allowed_dates),
+    ) if allowed_dates else date_id
 
     files = collect_inquiry_files(
         directories
@@ -413,12 +450,12 @@ def scan_inquiry_batch(
                     f"SchemaVersion 必须为 1.0"
                 )
 
-            if row_date != date_id:
+            if row_date not in allowed_dates:
 
                 errors.append(
                     f"{path.name} 第{excel_row}行："
                     f"DateID={row_date}，"
-                    f"与当前选择日期 {date_id} 不一致"
+                    f"不在扫描范围 {range_text}"
                 )
 
             if not source_id:
@@ -683,7 +720,7 @@ def scan_inquiry_batch(
             if source_id in source_to_file:
 
                 errors.append(
-                    f"同一 DateID 下 SourceID "
+                    f"本次扫描范围内 SourceID "
                     f"{source_id} 出现多个询价文件："
                     f"{source_to_file[source_id]} "
                     f"与 {path}"

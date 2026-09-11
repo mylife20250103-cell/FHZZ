@@ -25,6 +25,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.date_ids import (
+    format_date_id_range,
+    iter_date_ids,
+    today_date_id,
+)
 from app.app_logging import log_event
 from app.services.batch_service import (
     STAGE_LABELS,
@@ -79,10 +84,6 @@ class InvoicePage(QWidget):
 
         self.build_ui()
 
-        self.date_edit.dateChanged.connect(
-            self._on_date_changed
-        )
-
         self.restore_active_batch()
 
     def showEvent(self, event: QShowEvent):
@@ -121,9 +122,9 @@ class InvoicePage(QWidget):
         )
 
         subtitle = QLabel(
-            "选择一个物流商扫描源并完成原始扫描后，"
-            "可一次完成准备合并（快速合并、二次扫描、MergePlan），"
-            "再做内容合并。与询价中心互不依赖。"
+            "按日期范围扫描一个物流商的原始发票，"
+            "批次和合并结果始终写到今天。"
+            "与询价中心互不依赖。"
         )
 
         subtitle.setObjectName(
@@ -233,25 +234,37 @@ class InvoicePage(QWidget):
         controls = QHBoxLayout()
 
         controls.addWidget(
-            QLabel("DateID：")
+            QLabel("从")
         )
 
-        self.date_edit = QDateEdit()
-
-        self.date_edit.setCalendarPopup(
-            True
+        self.range_from = QDateEdit()
+        self.range_from.setCalendarPopup(True)
+        self.range_from.setDisplayFormat("yyyy-MM-dd")
+        self.range_from.setDate(QDate.currentDate())
+        self.range_from.dateChanged.connect(
+            self.refresh_paths
         )
-
-        self.date_edit.setDisplayFormat(
-            "yyyy-MM-dd"
-        )
-
-        self.date_edit.setDate(
-            QDate.currentDate()
-        )
+        controls.addWidget(self.range_from)
 
         controls.addWidget(
-            self.date_edit
+            QLabel("到")
+        )
+
+        self.range_to = QDateEdit()
+        self.range_to.setCalendarPopup(True)
+        self.range_to.setDisplayFormat("yyyy-MM-dd")
+        self.range_to.setDate(QDate.currentDate())
+        self.range_to.dateChanged.connect(
+            self.refresh_paths
+        )
+        controls.addWidget(self.range_to)
+
+        self.output_date_label = QLabel()
+        self.output_date_label.setObjectName(
+            "SecondaryText"
+        )
+        controls.addWidget(
+            self.output_date_label
         )
 
         controls.addSpacing(16)
@@ -625,15 +638,15 @@ class InvoicePage(QWidget):
     # Date
     # =====================================================
 
-    def date_id(self):
+    def scan_range(self) -> tuple[str, str]:
+        start = self.range_from.date().toString("yyyyMMdd")
+        end = self.range_to.date().toString("yyyyMMdd")
+        if start > end:
+            start, end = end, start
+        return start, end
 
-        return (
-            self.date_edit
-            .date()
-            .toString(
-                "yyyyMMdd"
-            )
-        )
+    def date_id(self):
+        return today_date_id()
 
     # =====================================================
     # Path
@@ -725,6 +738,13 @@ class InvoicePage(QWidget):
 
         if not hasattr(self, "path_list"):
             return
+
+        if hasattr(self, "output_date_label"):
+            start, end = self.scan_range()
+            self.output_date_label.setText(
+                f"输出 DateID：{self.date_id()}（今天）｜"
+                f"扫描 {format_date_id_range(start, end)}"
+            )
 
         entry = self.selected_source()
 
@@ -939,7 +959,9 @@ class InvoicePage(QWidget):
         self.reset_button.setEnabled(not busy)
         self.open_merged_button.setEnabled(not busy)
         self.source_combo.setEnabled(not busy)
-        self.date_edit.setEnabled(not busy)
+        if hasattr(self, "range_from"):
+            self.range_from.setEnabled(not busy)
+            self.range_to.setEnabled(not busy)
         self._refresh_extra_scan_button(busy=busy)
 
         if busy and text:
@@ -1098,6 +1120,8 @@ class InvoicePage(QWidget):
             return
 
         date_id = self.date_id()
+        start, end = self.scan_range()
+        allowed_date_ids = iter_date_ids(start, end)
 
         self._set_busy(True, "正在扫描原始发票...")
 
@@ -1106,6 +1130,7 @@ class InvoicePage(QWidget):
             result = scan_original_invoices(
                 date_id=date_id,
                 directories=directories,
+                allowed_date_ids=allowed_date_ids,
             )
 
             batch_info = None
@@ -1466,11 +1491,6 @@ class InvoicePage(QWidget):
         box.setText(body)
         box.setStandardButtons(QMessageBox.StandardButton.Ok)
         box.exec()
-
-    def _on_date_changed(self, *_):
-
-        self._skip_restore = False
-        self.restore_active_batch()
 
     def clear_scan_view(self):
 

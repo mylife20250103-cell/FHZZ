@@ -175,3 +175,80 @@ def test_scan_keeps_latest_generation_only(tmp_path, monkeypatch):
     assert cartons == {"FBA33U000001", "FBA11U000001"}
     assert any("已跳过 1 个" in item for item in result.warnings)
     assert all("内部元数据不一致" not in item for item in result.errors)
+
+
+def test_known_carriers_ignore_tracking_only_codes(tmp_path, monkeypatch):
+    ini = tmp_path / "current_config.ini"
+    ini.write_text(
+        "\n".join(
+            [
+                "[Carrier.KYD]",
+                "CarrierName=快越达",
+                "[Carrier.MC]",
+                "CarrierName=迈创",
+                "[Carrier.HP]",
+                "CarrierName=皓鹏",
+                "[Carrier.LH]",
+                "CarrierName=利合",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "app.services.invoice_scan_service.CURRENT_CONFIG_INI",
+        ini,
+    )
+    from app.services.invoice_scan_service import load_known_carriers
+
+    assert load_known_carriers() == {"KYD", "MC"}
+
+
+def test_scan_includes_invoices_in_date_range(tmp_path, monkeypatch):
+
+    monkeypatch.setattr(
+        "app.services.invoice_scan_service.load_known_carriers",
+        lambda: {"KYD", "MC"},
+    )
+
+    _write_meta_invoice(
+        tmp_path / "day10.xlsx",
+        DateID="20260910",
+        SourceID="AAAAAAAA",
+        CartonNumber="FBA10U000001",
+        FBABatch="FBA10",
+        GeneratedAt="2026-09-10 10:00:00",
+    )
+    _write_meta_invoice(
+        tmp_path / "day11.xlsx",
+        DateID="20260911",
+        SourceID="BBBBBBBB",
+        CartonNumber="FBA11U000001",
+        FBABatch="FBA11",
+        GeneratedAt="2026-09-11 10:00:00",
+    )
+    _write_meta_invoice(
+        tmp_path / "day12.xlsx",
+        DateID="20260912",
+        SourceID="CCCCCCCC",
+        CartonNumber="FBA12U000001",
+        FBABatch="FBA12",
+        GeneratedAt="2026-09-12 10:00:00",
+    )
+
+    single = scan_original_invoices("20260910", [tmp_path])
+    assert {item.date_id for item in single.records} == {"20260910"}
+
+    ranged = scan_original_invoices(
+        "20260911",
+        [tmp_path],
+        allowed_date_ids=["20260910", "20260911"],
+    )
+    assert ranged.passed is True
+    assert {item.date_id for item in ranged.records} == {
+        "20260910",
+        "20260911",
+    }
+    assert {item.source_id for item in ranged.records} == {
+        "AAAAAAAA",
+        "BBBBBBBB",
+    }

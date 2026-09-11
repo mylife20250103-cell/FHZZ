@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from configparser import ConfigParser
+from pathlib import Path
 
-from app.invoice_config import CURRENT_CONFIG_INI
+from app.invoice_config import CURRENT_CONFIG_INI, FORWARDER_API_INI
 
 _FALLBACK_NAMES = (
     ("快越达", "KYD"),
@@ -44,13 +45,72 @@ def carrier_code_from_name(name: str) -> str:
 
 
 def _config_name_hints() -> list[tuple[str, str]]:
-    path = CURRENT_CONFIG_INI
-    if not path.exists():
+    """
+    发票白名单只读 current_config.ini（KYD/MC）。
+    追踪货代只读 forwarder_api.ini，不要写回发票配置表。
+    """
+
+    found: list[tuple[str, str]] = []
+    found.extend(
+        _carrier_section_hints(CURRENT_CONFIG_INI, prefix="CARRIER.")
+    )
+    found.extend(_nextsls_name_hints(FORWARDER_API_INI))
+    return found
+
+
+def _carrier_section_hints(
+    path: Path,
+    *,
+    prefix: str,
+) -> list[tuple[str, str]]:
+    parser = _read_ini(path)
+    if parser is None:
         return []
+    found: list[tuple[str, str]] = []
+    wanted = prefix.upper()
+    for section in parser.sections():
+        if not section.upper().startswith(wanted):
+            continue
+        code = section.split(".", 1)[-1].strip().upper()
+        name = parser.get(section, "CarrierName", fallback="").strip()
+        if code and name:
+            found.append((name, code))
+    return found
+
+
+def _nextsls_name_hints(path: Path) -> list[tuple[str, str]]:
+    parser = _read_ini(path)
+    if parser is None:
+        return []
+    found: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for section in parser.sections():
+        if not section.upper().startswith("NEXTSLS."):
+            continue
+        code = parser.get(section, "CarrierCode", fallback="").strip().upper()
+        name = parser.get(section, "Name", fallback="").strip()
+        if not code:
+            continue
+        labels = [name]
+        if "-" in name:
+            labels.append(name.split("-", 1)[0].strip())
+        for label in labels:
+            item = (label, code)
+            if not label or item in seen:
+                continue
+            seen.add(item)
+            found.append(item)
+    return found
+
+
+def _read_ini(path) -> ConfigParser | None:
+    file_path = Path(path)
+    if not file_path.exists():
+        return None
     try:
-        raw = path.read_bytes()
+        raw = file_path.read_bytes()
     except OSError:
-        return []
+        return None
     text = None
     for encoding in ("utf-8-sig", "gbk", "utf-8"):
         try:
@@ -59,15 +119,7 @@ def _config_name_hints() -> list[tuple[str, str]]:
         except UnicodeDecodeError:
             continue
     if text is None:
-        return []
+        return None
     parser = ConfigParser()
     parser.read_string(text)
-    found: list[tuple[str, str]] = []
-    for section in parser.sections():
-        if not section.upper().startswith("CARRIER."):
-            continue
-        code = section.split(".", 1)[-1].strip().upper()
-        name = parser.get(section, "CarrierName", fallback="").strip()
-        if code and name:
-            found.append((name, code))
-    return found
+    return parser
