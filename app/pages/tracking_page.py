@@ -47,10 +47,10 @@ from app.shipment_tracking.services.tracking_overlay import (
 from app.shipment_tracking.services.tracking_pull import pull_forwarder_tracking
 from app.workers import TaskWorker
 
-FBA_COL = 7
-TRACKING_COL = 8
-SKU_COL = 10
-NAME_COL = 12
+SKU_COL = 7
+NAME_COL = 9
+FBA_COL = 10
+TRACKING_COL = 11
 LATEST_COL = 13
 CONFIRMED_COL = 4
 CHANNEL_COL = 5
@@ -91,12 +91,12 @@ class TrackingPage(QWidget):
         "确认货代",
         "渠道",
         "候选货代",
-        "FBA",
-        "Tracking",
-        "目的仓",
         "SKU",
         "数量",
         "产品中文品名",
+        "FBA",
+        "Tracking",
+        "目的仓",
         "最新物流信息",
     )
 
@@ -422,12 +422,12 @@ class TrackingPage(QWidget):
                             confirmed,
                             channel_text,
                             source.candidate_forwarder or "",
-                            fba.fba_id,
-                            tracking,
-                            fba.destination_fc or "",
                             item.sku,
                             str(item.quantity),
                             item.product_name or "",
+                            fba.fba_id,
+                            tracking,
+                            fba.destination_fc or "",
                             latest,
                         ]
                     )
