@@ -9,3 +9,6 @@ PACKING_LIST_ROOT = SYSTEM_ROOT.parent.parent.parent / "【装箱明细】"
 
 # 按 FBA 保存运单号（人工或以后 API），不写发票合并库
 TRACKING_STORE_PATH = SYSTEM_ROOT / "发货追踪" / "fba_tracking.json"
+
+# 重点追踪：店铺 + 品名包含（可选 SKU），各电脑共用
+WATCHLIST_PATH = SYSTEM_ROOT / "发货追踪" / "watchlist.json"

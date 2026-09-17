@@ -127,7 +127,7 @@ class HomePage(QWidget):
             route="invoice",
             icon_text="票",
             title="发票中心",
-            description="处理当前 Batch，完成扫描与发票合并",
+            description="处理当前 Batch，完成扫描与发票合并，并可打开货代下单后台",
             button_text="进入发票中心",
             main_color="#1677FF",
             light_color="#EAF2FF",
@@ -152,6 +152,22 @@ class HomePage(QWidget):
                 ("FBA", "—"),
                 ("SKU", "—"),
                 ("Tracking", "无"),
+            ],
+        )
+
+        watchlist_card = ModuleCard(
+            route="watchlist",
+            icon_text="重",
+            title="重点追踪",
+            description="按店铺和品名盯重点货，打开即看最近 60 天运输情况",
+            button_text="进入重点追踪",
+            main_color="#7C3AED",
+            light_color="#F3E8FF",
+            stats=[
+                ("清单", "—"),
+                ("在途", "—"),
+                ("无运单", "—"),
+                ("已签收", "—"),
             ],
         )
 
@@ -207,6 +223,7 @@ class HomePage(QWidget):
             inquiry_card,
             invoice_card,
             tracking_card,
+            watchlist_card,
             edit_card,
             sensitive_card,
             maintain_card,
@@ -248,9 +265,15 @@ class HomePage(QWidget):
         )
 
         cards.addWidget(
+            watchlist_card,
+            1,
+            1,
+        )
+
+        cards.addWidget(
             maintain_card,
             1,
-            1,
+            2,
         )
 
         for column in range(4):

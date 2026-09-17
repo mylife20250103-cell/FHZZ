@@ -20,6 +20,7 @@ from app.pages.batch_edit_page import BatchEditPage
 from app.pages.sensitive_page import SensitivePage
 from app.pages.maintain_page import MaintainPage
 from app.pages.tracking_page import TrackingPage
+from app.pages.watchlist_page import WatchlistPage
 from app.version import APP_NAME, APP_VERSION_LABEL
 
 
@@ -74,6 +75,7 @@ class MainWindow(QMainWindow):
             ("inquiry", "▤  询价中心"),
             ("invoice", "▧  发票中心"),
             ("tracking", "◎  发货追踪"),
+            ("watchlist", "★  重点追踪"),
             ("batch_edit", "✎  批量修改单元格值"),
             ("sensitive", "⚠  敏感词检查"),
             ("maintain", "⚙  维护"),
@@ -151,6 +153,7 @@ class MainWindow(QMainWindow):
 
         self.pages["invoice"] = InvoicePage()
         self.pages["tracking"] = TrackingPage()
+        self.pages["watchlist"] = WatchlistPage()
         self.pages["batch_edit"] = BatchEditPage()
         self.pages["sensitive"] = SensitivePage()
         self.pages["maintain"] = MaintainPage()

@@ -58,6 +58,13 @@ from app.services.invoice_scan_service import (
     resolve_invoice_scan_directories,
     scan_original_invoices,
 )
+from app.shipment_tracking.providers.nextsls import (
+    ForwarderPortal,
+    carrier_portal_label,
+    is_browser_url,
+    portals_grouped_by_carrier,
+    portals_share_same_host,
+)
 from app.workers import TaskWorker
 
 
@@ -81,6 +88,7 @@ class InvoicePage(QWidget):
         self._worker: TaskWorker | None = None
         self._primary_action = "scan"
         self._skip_restore = False
+        self._order_portals: dict[str, tuple[ForwarderPortal, ...]] = {}
 
         self.build_ui()
 
@@ -91,6 +99,7 @@ class InvoicePage(QWidget):
         super().showEvent(event)
         self.refresh_source_combo()
         self.refresh_paths()
+        self.refresh_order_portals()
 
     # =====================================================
     # UI
@@ -125,6 +134,7 @@ class InvoicePage(QWidget):
             "按日期范围扫描一个物流商的原始发票，"
             "批次和合并结果始终写到今天。"
             "与询价中心互不依赖。"
+            "合并后可在本页打开货代下单后台。"
         )
 
         subtitle.setObjectName(
@@ -631,8 +641,50 @@ class InvoicePage(QWidget):
             1,
         )
 
+        order_card = QFrame()
+        order_card.setObjectName("Card")
+        order_layout = QVBoxLayout(order_card)
+        order_layout.setContentsMargins(18, 16, 18, 16)
+        order_layout.setSpacing(10)
+
+        order_title = QLabel("4  货代下单")
+        order_title.setObjectName("CardTitle")
+        order_layout.addWidget(order_title)
+
+        self.order_hint = QLabel(
+            "选择货代和下单账号后，用系统默认浏览器打开登录页。"
+            "不会自动登录，也不会自动下单。"
+        )
+        self.order_hint.setObjectName("SecondaryText")
+        self.order_hint.setWordWrap(True)
+        order_layout.addWidget(self.order_hint)
+
+        order_row = QHBoxLayout()
+        order_row.addWidget(QLabel("货代："))
+        self.order_carrier_combo = QComboBox()
+        self.order_carrier_combo.setMinimumWidth(160)
+        self.order_carrier_combo.currentIndexChanged.connect(
+            self.refresh_order_accounts
+        )
+        order_row.addWidget(self.order_carrier_combo)
+
+        order_row.addSpacing(12)
+        order_row.addWidget(QLabel("下单账号："))
+        self.order_account_combo = QComboBox()
+        self.order_account_combo.setMinimumWidth(220)
+        order_row.addWidget(self.order_account_combo, 1)
+
+        self.open_portal_button = QPushButton("打开下单后台")
+        self.open_portal_button.setObjectName("SecondaryButton")
+        self.open_portal_button.clicked.connect(self.open_forwarder_portal)
+        order_row.addWidget(self.open_portal_button)
+        order_layout.addLayout(order_row)
+
+        root.addWidget(order_card)
+
         self.refresh_source_combo()
         self.refresh_paths()
+        self.refresh_order_portals()
 
     # =====================================================
     # Date
@@ -959,6 +1011,13 @@ class InvoicePage(QWidget):
         self.reset_button.setEnabled(not busy)
         self.open_merged_button.setEnabled(not busy)
         self.source_combo.setEnabled(not busy)
+        if hasattr(self, "order_carrier_combo"):
+            self.order_carrier_combo.setEnabled(not busy)
+            self.order_account_combo.setEnabled(not busy)
+            if busy:
+                self.open_portal_button.setEnabled(False)
+            else:
+                self.refresh_order_accounts()
         if hasattr(self, "range_from"):
             self.range_from.setEnabled(not busy)
             self.range_to.setEnabled(not busy)
@@ -1464,6 +1523,127 @@ class InvoicePage(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "打开失败", str(exc))
 
+    def _preferred_order_carrier(self) -> str:
+        records = []
+        if self.scan_result is not None:
+            records = list(self.scan_result.records)
+        carriers = {
+            record.carrier_code
+            for record in records
+            if record.carrier_code
+        }
+        if len(carriers) == 1:
+            return next(iter(carriers))
+        source = self.selected_source()
+        if source and source.carrier_code:
+            return source.carrier_code
+        return ""
+
+    def refresh_order_portals(self, force_carrier: str = ""):
+        if not hasattr(self, "order_carrier_combo"):
+            return
+        grouped = portals_grouped_by_carrier()
+        self._order_portals = grouped
+        wanted = (
+            force_carrier
+            or self.order_carrier_combo.currentData()
+            or self._preferred_order_carrier()
+        )
+        self.order_carrier_combo.blockSignals(True)
+        self.order_carrier_combo.clear()
+        if not grouped:
+            self.order_carrier_combo.addItem("未配置货代账号", "")
+        else:
+            for code, items in grouped.items():
+                self.order_carrier_combo.addItem(
+                    carrier_portal_label(code, items),
+                    code,
+                )
+            index = self.order_carrier_combo.findData(wanted)
+            if index >= 0:
+                self.order_carrier_combo.setCurrentIndex(index)
+        self.order_carrier_combo.blockSignals(False)
+        self.refresh_order_accounts()
+
+    def refresh_order_accounts(self):
+        if not hasattr(self, "order_account_combo"):
+            return
+        current = self.order_account_combo.currentData()
+        code = self.order_carrier_combo.currentData() or ""
+        accounts = self._order_portals.get(code, ())
+        self.order_account_combo.blockSignals(True)
+        self.order_account_combo.clear()
+        if not accounts:
+            self.order_account_combo.addItem("请先选择货代", "")
+        else:
+            for item in accounts:
+                self.order_account_combo.addItem(item.name, item.provider_id)
+            index = self.order_account_combo.findData(current)
+            if index >= 0:
+                self.order_account_combo.setCurrentIndex(index)
+        self.order_account_combo.blockSignals(False)
+        if not accounts:
+            self.order_hint.setText(
+                "未读到货代下单网址。请确认 OneDrive 里有"
+                "「发票系统\\公共配置\\forwarder_api.ini」。"
+            )
+        elif portals_share_same_host(accounts):
+            self.order_hint.setText(
+                "只打开浏览器登录页，不会自动登录或下单。"
+                "该货代多家账号共用同一网站，打开后请登录所选账号。"
+            )
+        else:
+            self.order_hint.setText(
+                "只打开浏览器登录页，不会自动登录，也不会自动下单。"
+            )
+        worker_busy = (
+            self._worker is not None and self._worker.isRunning()
+        )
+        self.open_portal_button.setEnabled(
+            bool(accounts) and not worker_busy
+        )
+
+    def _selected_order_portal(self) -> ForwarderPortal | None:
+        code = self.order_carrier_combo.currentData() or ""
+        provider_id = self.order_account_combo.currentData() or ""
+        for item in self._order_portals.get(code, ()):
+            if item.provider_id == provider_id:
+                return item
+        return None
+
+    def open_forwarder_portal(self):
+        if self._busy_running():
+            return
+        portal = self._selected_order_portal()
+        if portal is None:
+            QMessageBox.warning(
+                self,
+                "请选择账号",
+                "请先选择货代和下单账号。",
+            )
+            return
+        url = portal.portal_url
+        if not is_browser_url(url):
+            QMessageBox.warning(
+                self,
+                "网址无效",
+                "该账号没有可用的下单网址。",
+            )
+            return
+        opened = QDesktopServices.openUrl(QUrl(url))
+        if not opened:
+            QMessageBox.critical(
+                self,
+                "打开失败",
+                f"无法用默认浏览器打开：\n{url}",
+            )
+            return
+        log_event(
+            "invoice",
+            f"打开货代下单后台 {portal.name} {url}",
+            batch_id=self.current_batch_id or "",
+        )
+
     def _notify_batch_completed(self, record: BatchRecord, extra: str = ""):
 
         if extra:
@@ -1477,13 +1657,19 @@ class InvoicePage(QWidget):
                 "快速合并临时目录可能被 Excel 或 OneDrive 占用，"
                 "稍后可手动删除：\n\n"
                 f"{extra}"
+                "\n\n下一步可在本页「货代下单」选择账号，"
+                "打开浏览器登录下单。"
             )
         else:
             self._show_pass(
                 f"COMPLETED｜{record.batch_id} 已完成，"
                 "快速合并临时目录已清理"
             )
-            body = f"{record.batch_id} 已锁定，不可再修改。"
+            body = (
+                f"{record.batch_id} 已锁定，不可再修改。\n\n"
+                "下一步可在本页「货代下单」选择账号，"
+                "打开浏览器登录下单。"
+            )
 
         box = QMessageBox(self)
         box.setWindowTitle("Batch 已完成")
@@ -1513,6 +1699,7 @@ class InvoicePage(QWidget):
 
         self.update_stepper(1)
         self.refresh_primary_button()
+        self.refresh_order_portals()
 
     def reset_to_initial(self):
 
@@ -1905,3 +2092,7 @@ class InvoicePage(QWidget):
                 border-radius:5px;
                 """
             )
+
+        self.refresh_order_portals(
+            force_carrier=self._preferred_order_carrier()
+        )

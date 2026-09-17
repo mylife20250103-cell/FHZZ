@@ -45,6 +45,7 @@ from app.shipment_tracking.services.tracking_overlay import (
     upsert_tracking,
 )
 from app.shipment_tracking.services.tracking_pull import pull_forwarder_tracking
+from app.shipment_tracking.services.watchlist import add_watch_item
 from app.workers import TaskWorker
 
 SKU_COL = 7
@@ -228,6 +229,10 @@ class TrackingPage(QWidget):
         pull_btn.clicked.connect(self.pull_forwarder)
         self.pull_btn = pull_btn
         register.addWidget(pull_btn)
+        watch_btn = QPushButton("加入重点追踪")
+        watch_btn.setObjectName("SecondaryButton")
+        watch_btn.clicked.connect(self.add_to_watchlist)
+        register.addWidget(watch_btn)
         register.addStretch()
         setup.addLayout(register)
         root.addWidget(card)
@@ -506,6 +511,34 @@ class TrackingPage(QWidget):
             self.status_label.setText(f"{self._scan_status} {extra}")
         else:
             self.status_label.setText(extra)
+
+    def add_to_watchlist(self):
+        selected = {index.row() for index in self.table.selectedIndexes()}
+        if not selected:
+            QMessageBox.warning(self, "加入重点追踪", "请先选中表格里的一行。")
+            return
+        row = min(selected)
+        store_cell = self.table.item(row, 0)
+        name_cell = self.table.item(row, NAME_COL)
+        store = store_cell.text().strip() if store_cell else ""
+        name = name_cell.text().strip() if name_cell else ""
+        try:
+            item, created = add_watch_item(store, name)
+        except ValueError as exc:
+            QMessageBox.warning(self, "加入重点追踪", str(exc))
+            return
+        if created:
+            QMessageBox.information(
+                self,
+                "加入重点追踪",
+                f"已加入：{item.label()}\n\n之后打开左侧「重点追踪」即可查看最近 60 天运输情况。",
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "加入重点追踪",
+                f"已在清单里：{item.label()}",
+            )
 
     def pull_forwarder(self):
         if not self._all_rows:

@@ -21,6 +21,16 @@ class NextslsConfig:
 
 
 @dataclass(frozen=True)
+class ForwarderPortal:
+    """货代网页后台。不含 Token，只用于打开浏览器登录页。"""
+
+    provider_id: str
+    name: str
+    carrier_code: str
+    portal_url: str
+
+
+@dataclass(frozen=True)
 class NextslsHit:
     fba_id: str
     tracking_number: str
@@ -126,6 +136,73 @@ def load_nextsls_providers(path=None) -> tuple[NextslsConfig, ...]:
             )
         )
     return tuple(found)
+
+
+def load_forwarder_portals(path=None) -> tuple[ForwarderPortal, ...]:
+    """读取下单后台网址。不读 Token，缺密钥的账号仍可打开登录页。"""
+
+    ini_path = Path(path) if path is not None else FORWARDER_API_INI
+    if not ini_path.exists():
+        return ()
+    parser = ConfigParser()
+    parser.read(ini_path, encoding="utf-8-sig")
+    found: list[ForwarderPortal] = []
+    for section in parser.sections():
+        if not section.upper().startswith("NEXTSLS."):
+            continue
+        gateway = parser.get(section, "Gateway", fallback="").strip().rstrip("/")
+        carrier_code = parser.get(section, "CarrierCode", fallback="").strip().upper()
+        if not gateway or not carrier_code:
+            continue
+        if not is_browser_url(gateway):
+            continue
+        provider_id = section.split(".", 1)[-1].strip().upper()
+        found.append(
+            ForwarderPortal(
+                provider_id=provider_id,
+                name=parser.get(section, "Name", fallback=provider_id).strip()
+                or provider_id,
+                carrier_code=carrier_code,
+                portal_url=gateway,
+            )
+        )
+    return tuple(found)
+
+
+def portals_grouped_by_carrier(
+    path=None,
+) -> dict[str, tuple[ForwarderPortal, ...]]:
+    grouped: dict[str, list[ForwarderPortal]] = {}
+    for item in load_forwarder_portals(path):
+        grouped.setdefault(item.carrier_code, []).append(item)
+    return {code: tuple(items) for code, items in grouped.items()}
+
+
+def carrier_portal_label(code: str, portals: tuple[ForwarderPortal, ...]) -> str:
+    prefix = ""
+    if portals:
+        prefix = portals[0].name.split("-", 1)[0].strip()
+    return f"{code}｜{prefix}" if prefix else code
+
+
+def portals_share_same_host(portals: tuple[ForwarderPortal, ...]) -> bool:
+    hosts = {_portal_host(item.portal_url) for item in portals}
+    hosts.discard("")
+    return len(portals) > 1 and len(hosts) == 1
+
+
+def is_browser_url(url: str) -> bool:
+    text = (url or "").strip().lower()
+    return text.startswith("http://") or text.startswith("https://")
+
+
+def _portal_host(url: str) -> str:
+    text = (url or "").strip().lower()
+    for prefix in ("https://", "http://"):
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+            break
+    return text.split("/", 1)[0]
 
 
 def providers_grouped_by_carrier(

@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import json
 
+from dataclasses import fields
+
 from app.shipment_tracking.providers.nextsls import (
+    ForwarderPortal,
     NextslsConfig,
     NextslsError,
     NextslsHit,
     ShipmentTrace,
+    carrier_portal_label,
     format_latest_trace,
+    is_browser_url,
+    load_forwarder_portals,
     load_nextsls_providers,
     load_shipment_detail,
     parse_shipment_detail,
+    portals_grouped_by_carrier,
+    portals_share_same_host,
     prefer_accounts_for_hint,
     providers_by_carrier,
     providers_grouped_by_carrier,
@@ -205,6 +213,60 @@ def test_load_providers_maps_carrier(tmp_path):
     assert "TUYU" not in by_carrier
     assert by_carrier["KYD"].gateway == "http://kyd.example"
     assert [item.provider_id for item in grouped["MC"]] == ["MC.TUYU", "MC.CHIYI"]
+
+
+def test_load_forwarder_portals_skips_token_and_groups_accounts(tmp_path):
+    ini = tmp_path / "forwarder_api.ini"
+    ini.write_text(
+        "\n".join(
+            [
+                "[NextSLS.KYD]",
+                "Name=快越达-小鲸渔",
+                "Gateway=http://gzfkyd.nextsls.com",
+                "Token=must-not-appear",
+                "CarrierCode=KYD",
+                "",
+                "[NextSLS.MC.TUYU]",
+                "Name=迈创-途鱼科技",
+                "Gateway=http://mancxp.nextsls.com",
+                "CarrierCode=MC",
+                "",
+                "[NextSLS.MC.XUNLUZHE]",
+                "Name=迈创-寻麓者",
+                "Gateway=http://mancxp.nextsls.com/",
+                "Token=mc-token",
+                "CarrierCode=MC",
+                "",
+                "[NextSLS.SKIP]",
+                "Name=无网关",
+                "Gateway=",
+                "Token=secret",
+                "CarrierCode=HP",
+                "",
+                "[NextSLS.BADURL]",
+                "Name=非网址",
+                "Gateway=ftp://example.test",
+                "CarrierCode=LH",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    portals = load_forwarder_portals(ini)
+    assert "token" not in {item.name for item in fields(ForwarderPortal)}
+    assert [item.provider_id for item in portals] == [
+        "KYD",
+        "MC.TUYU",
+        "MC.XUNLUZHE",
+    ]
+    assert all("must-not-appear" not in item.portal_url for item in portals)
+    assert all("mc-token" not in item.portal_url for item in portals)
+    grouped = portals_grouped_by_carrier(ini)
+    assert carrier_portal_label("KYD", grouped["KYD"]) == "KYD｜快越达"
+    assert [item.name for item in grouped["MC"]] == ["迈创-途鱼科技", "迈创-寻麓者"]
+    assert portals_share_same_host(grouped["MC"]) is True
+    assert portals_share_same_host(grouped["KYD"]) is False
+    assert is_browser_url("http://gzfkyd.nextsls.com") is True
+    assert is_browser_url("ftp://example.test") is False
 
 
 def test_pull_routes_by_carrier_and_skips_manual(tmp_path, monkeypatch):
