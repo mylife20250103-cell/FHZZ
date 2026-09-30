@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import sys
 
 
@@ -81,9 +82,42 @@ CENTRAL_ADDRESS_PATH = (
 )
 
 
+def appdata_root() -> Path:
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    return Path(base) / "InvoiceMergeSystem"
+
+
+def dir_writable(path: Path) -> bool:
+    """OneDrive 占位目录可能 mkdir 成功，真正写文件却报 Errno 22。"""
+
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".ims_write_test"
+        with open(probe, "a", encoding="utf-8") as handle:
+            handle.write("ok")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def choose_writable_root(*candidates: Path) -> Path:
+    usable: list[Path] = []
+    for root in candidates:
+        if root is None:
+            continue
+        usable.append(root)
+        if dir_writable(root / "logs") and dir_writable(root / "temp"):
+            return root
+    fallback = usable[-1] if usable else appdata_root()
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
 def _local_root() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+        exe_dir = Path(sys.executable).resolve().parent
+        return choose_writable_root(exe_dir, appdata_root())
     return Path(r"D:\InvoiceMergeSystem")
 
 

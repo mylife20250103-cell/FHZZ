@@ -3,10 +3,28 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from app.invoice_config import LOG_ROOT
+from app.invoice_config import LOG_ROOT, appdata_root
 
 
 LOGGER_NAME = "invoice_merge"
+
+
+def _attach_file_handler(logger: logging.Logger, directory: Path) -> bool:
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(
+            directory / "app.log",
+            encoding="utf-8",
+        )
+    except OSError:
+        return False
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s | %(levelname)s | %(message)s"
+        )
+    )
+    logger.addHandler(handler)
+    return True
 
 
 def setup_logging() -> logging.Logger:
@@ -16,24 +34,14 @@ def setup_logging() -> logging.Logger:
     if logger.handlers:
         return logger
 
-    LOG_ROOT.mkdir(parents=True, exist_ok=True)
-
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
-    handler = logging.FileHandler(
-        LOG_ROOT / "app.log",
-        encoding="utf-8",
-    )
+    for directory in (LOG_ROOT, appdata_root() / "logs"):
+        if _attach_file_handler(logger, directory):
+            return logger
 
-    handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s | %(levelname)s | %(message)s"
-        )
-    )
-
-    logger.addHandler(handler)
-
+    logger.addHandler(logging.NullHandler())
     return logger
 
 
