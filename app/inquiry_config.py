@@ -43,3 +43,12 @@ INQUIRY_CARTON_COLUMN = "C"
 
 # WarehouseCode 默认规则
 WAREHOUSE_PATTERN = r"^[A-Z0-9]{3,10}$"
+
+
+# 店铺号前缀 → 国家站点。新增国家只加一行。
+INQUIRY_COUNTRY_SITES = (
+    ("美", "美国"),
+    ("加", "加拿大"),
+    ("英", "英国"),
+    ("德", "德国"),
+)

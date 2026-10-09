@@ -5,7 +5,7 @@ import re
 import shutil
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
@@ -24,6 +24,7 @@ from app.inquiry_config import (
     INQUIRY_WAREHOUSE_COLUMN,
     INQUIRY_WEIGHT_COLUMN,
     INQUIRY_CARTON_COLUMN,
+    INQUIRY_COUNTRY_SITES,
     WAREHOUSE_PATTERN,
 )
 from app.invoice_config import (
@@ -64,6 +65,10 @@ class ScanResult:
     summaries: list[InquirySummary]
     errors: list[str]
     files: list[Path]
+    country_name: str = ""
+    store_codes: list[str] = field(default_factory=list)
+    skipped_other_country_count: int = 0
+    unknown_store_files: list[str] = field(default_factory=list)
 
 
 def excel_round_2(value) -> Decimal:
@@ -286,14 +291,133 @@ def read_inquiry_file(
         workbook.close()
 
 
+def country_name_for_store(store_code: str) -> str | None:
+    """店铺号前缀对应的国家站点。未登记的前缀返回 None。"""
+
+    code = store_code.strip()
+    found = None
+    found_length = -1
+    for prefix, name in INQUIRY_COUNTRY_SITES:
+        if code.startswith(prefix) and len(prefix) > found_length:
+            found = name
+            found_length = len(prefix)
+    return found
+
+
+def store_code_in_filename(path: Path) -> str:
+    """`日期_店铺号_仓库_来源编号_询价明细.xlsx` 的第二段。"""
+
+    parts = path.stem.split("_")
+    if len(parts) < 2:
+        return ""
+    return parts[1]
+
+
+def inquiry_summary_output_name(
+    date_id: str,
+    country_name: str,
+    total_cartons: int,
+) -> str:
+    return (
+        f"{date_id}_{country_name}_询价汇总_"
+        f"{total_cartons}箱.xlsx"
+    )
+
+
+def _store_codes_in_rows(rows: list[dict]) -> set[str]:
+    codes = set()
+    for row in rows:
+        value = row.get("StoreCode")
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            codes.add(text)
+    return codes
+
+
+def select_inquiry_files_for_country(
+    files: list[Path],
+    country_name: str,
+) -> tuple[list[Path], list[str], int, list[str], list[str]]:
+    """留下所选国家的询价明细。其他已知国家跳过，未登记前缀单独列出。"""
+
+    selected = []
+    errors = []
+    skipped_other = 0
+    unknown = []
+    store_codes = set()
+
+    for path in files:
+        rows, file_errors = read_inquiry_file(path)
+        if not rows:
+            errors.extend(file_errors)
+            continue
+
+        stores = _store_codes_in_rows(rows)
+        if len(stores) != 1:
+            if not stores:
+                errors.append(f"{path.name}：StoreCode 为空")
+            else:
+                errors.append(
+                    f"{path.name}：同一文件中出现多个 StoreCode"
+                )
+            continue
+
+        store = next(iter(stores))
+        site = country_name_for_store(store)
+        if site is None:
+            unknown.append(f"{path.name}（{store}）")
+            continue
+        if site != country_name:
+            skipped_other += 1
+            continue
+
+        filename_store = store_code_in_filename(path)
+        if filename_store != store:
+            errors.append(
+                f"{path.name}：文件名店铺号 {filename_store} "
+                f"与表内 StoreCode {store} 不一致"
+            )
+            continue
+
+        selected.append(path)
+        store_codes.add(store)
+
+    return (
+        selected,
+        errors,
+        skipped_other,
+        unknown,
+        sorted(store_codes),
+    )
+
+
 def scan_inquiry_batch(
     date_id: str,
     directories: list[Path],
     *,
     allowed_date_ids: list[str] | None = None,
+    country_name: str,
 ) -> ScanResult:
 
     errors = []
+    known_countries = {
+        name for _, name in INQUIRY_COUNTRY_SITES
+    }
+    if country_name not in known_countries:
+        return ScanResult(
+            passed=False,
+            file_count=0,
+            source_count=0,
+            carton_count=0,
+            warehouse_count=0,
+            total_weight=Decimal("0.00"),
+            summaries=[],
+            errors=[f"未知国家站点：{country_name}"],
+            files=[],
+            country_name=country_name,
+        )
 
     allowed_dates = set(
         allowed_date_ids
@@ -323,6 +447,45 @@ def scan_inquiry_batch(
                 "没有找到 *_询价明细.xlsx"
             ],
             files=[],
+            country_name=country_name,
+        )
+
+    (
+        files,
+        select_errors,
+        skipped_other,
+        unknown_store_files,
+        store_codes,
+    ) = select_inquiry_files_for_country(
+        files,
+        country_name,
+    )
+    errors.extend(select_errors)
+
+    if not files:
+        if not errors:
+            message = (
+                f"所选国家「{country_name}」没有询价明细"
+            )
+            if skipped_other:
+                message += (
+                    f"（已跳过其他国家 {skipped_other} 个文件）"
+                )
+            errors.append(message)
+        return ScanResult(
+            passed=False,
+            file_count=0,
+            source_count=0,
+            carton_count=0,
+            warehouse_count=0,
+            total_weight=Decimal("0.00"),
+            summaries=[],
+            errors=errors,
+            files=[],
+            country_name=country_name,
+            store_codes=store_codes,
+            skipped_other_country_count=skipped_other,
+            unknown_store_files=unknown_store_files,
         )
 
     # ==========================================
@@ -800,12 +963,18 @@ def scan_inquiry_batch(
         summaries=summaries,
         errors=errors,
         files=files,
+        country_name=country_name,
+        store_codes=store_codes,
+        skipped_other_country_count=skipped_other,
+        unknown_store_files=unknown_store_files,
     )
 
 
 def generate_inquiry_summary(
     date_id: str,
     summaries: list[InquirySummary],
+    *,
+    country_name: str,
 ) -> Path:
     """
     使用真实 Excel COM 生成询价汇总表。
@@ -851,9 +1020,10 @@ def generate_inquiry_summary(
         for item in summaries
     )
 
-    output_name = (
-        f"{date_id}_询价汇总_"
-        f"{total_cartons}箱.xlsx"
+    output_name = inquiry_summary_output_name(
+        date_id,
+        country_name,
+        total_cartons,
     )
 
     output_path = (
@@ -861,7 +1031,10 @@ def generate_inquiry_summary(
     )
 
     LOCAL_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
-    temp_path = LOCAL_TEMP_ROOT / f"inquiry_tmp_{date_id}.xlsx"
+    temp_path = (
+        LOCAL_TEMP_ROOT
+        / f"inquiry_tmp_{date_id}_{country_name}.xlsx"
+    )
 
     # 防止上次异常遗留
     if temp_path.exists():
@@ -1336,7 +1509,7 @@ def generate_inquiry_summary(
 
     for old_file in (
         output_directory.glob(
-            f"{date_id}_询价汇总_*箱.xlsx"
+            f"{date_id}_{country_name}_询价汇总_*箱.xlsx"
         )
     ):
 

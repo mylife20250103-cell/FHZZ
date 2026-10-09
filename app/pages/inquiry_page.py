@@ -12,6 +12,7 @@ from PySide6.QtCore import (
 
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -33,6 +34,7 @@ from app.date_ids import (
     today_date_id,
 )
 from app.inquiry_config import (
+    INQUIRY_COUNTRY_SITES,
     INQUIRY_SOURCE_ROOT,
 )
 
@@ -90,9 +92,8 @@ class InquiryPage(QWidget):
         )
 
         subtitle = QLabel(
-            "按日期范围扫描询价明细，"
-            "校验后按仓库生成统一询价汇总。"
-            "汇总表始终写到今天。"
+            "先选国家站点，再按日期范围扫描该国家的询价明细。"
+            "同一天可以按国家各导出一份，汇总表写到今天。"
         )
 
         subtitle.setObjectName(
@@ -124,7 +125,7 @@ class InquiryPage(QWidget):
         )
 
         section_title = QLabel(
-            "1  选择询价日期范围"
+            "1  选择国家站点和询价日期"
         )
 
         section_title.setObjectName(
@@ -136,6 +137,21 @@ class InquiryPage(QWidget):
         )
 
         controls = QHBoxLayout()
+
+        controls.addWidget(
+            QLabel("国家站点")
+        )
+
+        self.country_combo = QComboBox()
+        self.country_combo.setMinimumWidth(100)
+        for _prefix, name in INQUIRY_COUNTRY_SITES:
+            self.country_combo.addItem(name)
+        self.country_combo.currentIndexChanged.connect(
+            self.on_country_changed
+        )
+        controls.addWidget(self.country_combo)
+
+        controls.addSpacing(12)
 
         controls.addWidget(
             QLabel("从")
@@ -564,6 +580,32 @@ class InquiryPage(QWidget):
     def output_date_id(self):
         return today_date_id()
 
+    def selected_country_name(self) -> str:
+        return self.country_combo.currentText().strip()
+
+    def on_country_changed(self):
+        self.scan_result = None
+        self.generate_button.setEnabled(False)
+        self.table.setRowCount(0)
+        for label in (
+            self.file_value,
+            self.source_value,
+            self.carton_value,
+            self.weight_value,
+            self.warehouse_value,
+        ):
+            label.setText("—")
+        self.status_label.setText(
+            "国家站点已更改，请重新扫描"
+        )
+        self.status_label.setStyleSheet(
+            """
+            padding:8px;
+            background:#F5F7FB;
+            border-radius:5px;
+            """
+        )
+
     def default_directories(self) -> list[Path]:
         start, end = self.scan_range()
         return inquiry_directories_for_range(start, end)
@@ -725,6 +767,7 @@ class InquiryPage(QWidget):
                 date_id=date_id,
                 directories=directories,
                 allowed_date_ids=allowed_date_ids,
+                country_name=self.selected_country_name(),
             )
 
         finally:
@@ -736,6 +779,24 @@ class InquiryPage(QWidget):
         self.show_scan_result(
             result
         )
+
+    def _country_scan_note(self, result: ScanResult) -> str:
+        lines = []
+        if result.country_name:
+            lines.append(f"国家站点：{result.country_name}")
+        if result.store_codes:
+            lines.append(
+                "纳入店铺：" + "、".join(result.store_codes)
+            )
+        if result.skipped_other_country_count:
+            lines.append(
+                "已跳过其他国家 "
+                f"{result.skipped_other_country_count} 个文件"
+            )
+        if result.unknown_store_files:
+            shown = "；".join(result.unknown_store_files[:8])
+            lines.append(f"未识别店铺前缀，未纳入：{shown}")
+        return "\n".join(lines)
 
     def show_scan_result(
         self,
@@ -796,11 +857,14 @@ class InquiryPage(QWidget):
                 ),
             )
 
+        note = self._country_scan_note(result)
+
         if result.passed:
 
             self.status_label.setText(
                 "PASS｜数据校验通过，"
-                "可以生成询价汇总表"
+                "可以生成询价汇总表\n"
+                + note
             )
 
             self.status_label.setStyleSheet(
@@ -834,6 +898,7 @@ class InquiryPage(QWidget):
                 "FAILED｜发现关键异常，"
                 "禁止生成\n\n"
                 + error_preview
+                + (("\n\n" + note) if note else "")
             )
 
             self.status_label.setStyleSheet(
@@ -864,6 +929,8 @@ class InquiryPage(QWidget):
             "确认生成",
             (
                 "确认根据当前扫描结果生成询价表？\n\n"
+                f"国家站点："
+                f"{self.scan_result.country_name}\n"
                 f"输出 DateID："
                 f"{self.output_date_id()}（今天）\n"
                 f"仓库："
@@ -871,7 +938,9 @@ class InquiryPage(QWidget):
                 f"总箱数："
                 f"{self.scan_result.carton_count}\n"
                 f"总重量："
-                f"{self.scan_result.total_weight:.2f} KG"
+                f"{self.scan_result.total_weight:.2f} KG\n\n"
+                "同一国家当天再导出时，会替换该国家上一份汇总，"
+                "已填写的报价不会保留。"
             ),
             QMessageBox.Yes
             | QMessageBox.No,
@@ -890,6 +959,9 @@ class InquiryPage(QWidget):
                     ),
                     summaries=(
                         self.scan_result.summaries
+                    ),
+                    country_name=(
+                        self.scan_result.country_name
                     ),
                 )
             )
