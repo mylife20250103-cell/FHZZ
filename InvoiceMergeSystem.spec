@@ -51,7 +51,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="发票合并系统_V1.1.16",
+    name="发票合并系统_V1.1.17",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

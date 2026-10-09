@@ -227,3 +227,6 @@ def run_content_merge(batch: BatchRecord) -> ContentMergeResult:
 
     finally:
         _cleanup(work_root)
+        from app.services.invoice_adapters.mc_adapter import close_mc_excel
+
+        close_mc_excel()
