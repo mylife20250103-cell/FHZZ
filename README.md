@@ -62,6 +62,14 @@ py -3.11 -m venv .venv
 
 PyInstaller 未列入 `requirements.txt`；本机现有环境已安装。发布产物位于 `dist/发票合并系统_V1.1.19.exe`，含使用说明的压缩包位于 `release/发票合并系统_V1.1.19.zip`。
 
+正式发版还需复制到公司 OneDrive 的版本目录：
+
+```text
+I:\OneDrive\OneDrive - Lion\【采购仓储】\【发货单】\【发票合并】\发票系统\发票合并系统_V<版本号>\
+```
+
+沿用历史发布位置，新建版本目录，复制已验证的 `release/发票合并系统_V<版本号>/` 内容，再逐文件比对 SHA256。V1.1.19 已于 2026-10-20 复制并验证全部 7 个文件。Git 推送、GitHub Release 和 OneDrive 文件发布是三个独立步骤；云端同步状态由 OneDrive 客户端负责。
+
 ## Git
 
 仓库远程地址：[mylife20250103-cell/FHZZ](https://github.com/mylife20250103-cell/FHZZ)。2026-10-20 检查时，当前分支为 `dev`，代码基线为 `24ea17f`；本地 `main` 仍停留在较早版本。
