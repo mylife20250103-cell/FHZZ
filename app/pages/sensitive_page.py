@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from app.styles import (
+    CAUTION_BUTTON_STYLE,
+    METRIC_STYLE,
+    PRIMARY_BUTTON_STYLE,
+    style_table,
+)
+
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -60,6 +67,7 @@ class LexiconDialog(QDialog):
         root.addWidget(profile_hint)
 
         self.profile_table = QTableWidget()
+        style_table(self.profile_table)
         self.profile_table.setColumnCount(5)
         self.profile_table.setHorizontalHeaderLabels(
             ["代码", "名称", "起始行", "表头行", "工作表"]
@@ -100,6 +108,7 @@ class LexiconDialog(QDialog):
         root.addLayout(add_row)
 
         self.table = QTableWidget()
+        style_table(self.table)
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(
             ["启用", "敏感词", "分类", "白名单", "备注"]
@@ -368,6 +377,7 @@ class HitDetailDialog(QDialog):
         root.addLayout(uniform)
 
         self.table = QTableWidget()
+        style_table(self.table)
         self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(
             ["勾选", "工作表", "单元格", "字段", "当前值", "新值"]
@@ -384,8 +394,7 @@ class HitDetailDialog(QDialog):
         locate_btn.clicked.connect(self.locate_selected)
         self.write_button = QPushButton("写入选中单元格")
         self.write_button.setStyleSheet(
-            "QPushButton { background:#F58A07; color:white; border:none;"
-            "border-radius:6px; padding:9px 18px; font-weight:600; }"
+            CAUTION_BUTTON_STYLE
         )
         self.write_button.clicked.connect(self.write_selected)
         close_btn = QPushButton("关闭")
@@ -589,8 +598,7 @@ class SensitivePage(QWidget):
         lexicon_btn.clicked.connect(self.open_lexicon)
         self.scan_button = QPushButton("开始检查")
         self.scan_button.setStyleSheet(
-            "QPushButton { background:#D64B6A; color:white; border:none;"
-            "border-radius:6px; padding:9px 18px; font-weight:600; }"
+            PRIMARY_BUTTON_STYLE
         )
         self.scan_button.clicked.connect(self.start_scan)
         self.export_button = QPushButton("导出结果")
@@ -629,7 +637,7 @@ class SensitivePage(QWidget):
             box = QVBoxLayout()
             caption = QLabel(name)
             caption.setObjectName("SecondaryText")
-            label.setStyleSheet("font-size:18px; font-weight:700;")
+            label.setStyleSheet(METRIC_STYLE)
             box.addWidget(caption)
             box.addWidget(label)
             stats.addLayout(box)
@@ -644,6 +652,7 @@ class SensitivePage(QWidget):
         hint.setObjectName("SecondaryText")
         table_layout.addWidget(hint)
         self.table = QTableWidget()
+        style_table(self.table)
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(
             ["文件", "敏感词", "分类", "单元格", "命中次数"]

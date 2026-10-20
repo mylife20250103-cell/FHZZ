@@ -38,11 +38,7 @@ class PlaceholderPage(QWidget):
         )
 
         title_label.setStyleSheet(
-            """
-            font-size: 28px;
-            font-weight: 700;
-            color: #172033;
-            """
+            '\n            font-size: 28px;\n            font-weight: 600;\n            color: #1D1D1F;\n            '
         )
 
         description_label = QLabel(
@@ -58,11 +54,7 @@ class PlaceholderPage(QWidget):
         )
 
         description_label.setStyleSheet(
-            """
-            font-size: 14px;
-            color: #7B8496;
-            margin-top: 10px;
-            """
+            '\n            font-size: 14px;\n            color: #6E6E73;\n            margin-top: 10px;\n            '
         )
 
         layout.addWidget(

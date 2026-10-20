@@ -1,7 +1,7 @@
 import getpass
 import socket
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -22,6 +22,7 @@ from app.pages.maintain_page import MaintainPage
 from app.pages.tracking_page import TrackingPage
 from app.pages.watchlist_page import WatchlistPage
 from app.version import APP_NAME, APP_VERSION_LABEL
+from app.ui_icons import navigation_icon
 
 
 class MainWindow(QMainWindow):
@@ -57,8 +58,8 @@ class MainWindow(QMainWindow):
         sidebar.setFixedWidth(215)
 
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(14, 18, 14, 18)
-        sidebar_layout.setSpacing(5)
+        sidebar_layout.setContentsMargins(14, 24, 14, 20)
+        sidebar_layout.setSpacing(4)
 
         title = QLabel("发票合并系统")
         title.setObjectName("AppTitle")
@@ -68,17 +69,20 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addWidget(title)
         sidebar_layout.addWidget(version)
-        sidebar_layout.addSpacing(20)
+        sidebar_layout.addSpacing(18)
+        workspace_title = QLabel("工作空间")
+        workspace_title.setObjectName("SidebarSection")
+        sidebar_layout.addWidget(workspace_title)
 
         nav_items = [
-            ("home", "⌂  首页"),
-            ("inquiry", "▤  询价中心"),
-            ("invoice", "▧  发票中心"),
-            ("tracking", "◎  发货追踪"),
-            ("watchlist", "★  重点追踪"),
-            ("batch_edit", "✎  批量修改单元格值"),
-            ("sensitive", "⚠  敏感词检查"),
-            ("maintain", "⚙  维护"),
+            ("home", "首页"),
+            ("inquiry", "询价中心"),
+            ("invoice", "发票中心"),
+            ("tracking", "发货追踪"),
+            ("watchlist", "重点追踪"),
+            ("batch_edit", "批量修改单元格值"),
+            ("sensitive", "敏感词检查"),
+            ("maintain", "维护"),
         ]
 
         for route, text in nav_items:
@@ -87,6 +91,8 @@ class MainWindow(QMainWindow):
             button.setObjectName("NavButton")
             button.setCheckable(True)
             button.setCursor(Qt.PointingHandCursor)
+            button.setIcon(navigation_icon(route))
+            button.setIconSize(QSize(20, 20))
 
             button.clicked.connect(
                 lambda checked=False, r=route: self.go_to(r)
@@ -103,13 +109,7 @@ class MainWindow(QMainWindow):
 
         system_title = QLabel("系统信息")
 
-        system_title.setStyleSheet(
-            """
-            font-size: 12px;
-            font-weight: 700;
-            color: #556070;
-            """
-        )
+        system_title.setObjectName("SidebarSection")
 
         username = getpass.getuser()
         computer = socket.gethostname()
@@ -120,12 +120,7 @@ class MainWindow(QMainWindow):
             f"版本号：{APP_VERSION_LABEL}"
         )
 
-        system_info.setStyleSheet(
-            """
-            color: #7B8496;
-            font-size: 11px;
-            """
-        )
+        system_info.setObjectName("SidebarInfo")
 
         sidebar_layout.addWidget(system_title)
         sidebar_layout.addSpacing(8)
@@ -138,6 +133,7 @@ class MainWindow(QMainWindow):
         # ==========================================
 
         self.stack = QStackedWidget()
+        self.stack.setObjectName("PageStack")
 
         # 首页：使用真正的 HomePage
         home_page = HomePage()

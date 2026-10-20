@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from app.styles import (
+    style_table,
+)
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -32,7 +36,7 @@ class TrackingDetailDialog(QDialog):
         root.setSpacing(12)
 
         title = QLabel(detail.title)
-        title.setStyleSheet("font-size: 20px; font-weight: 700;")
+        title.setStyleSheet('font-size: 20px; font-weight: 600;')
         title.setTextInteractionFlags(Qt.TextSelectableByMouse)
         root.addWidget(title)
 
@@ -64,7 +68,7 @@ class TrackingDetailDialog(QDialog):
         root.addLayout(body, 1)
 
         parcels_heading = QLabel("货箱信息")
-        parcels_heading.setStyleSheet("font-weight: 700; font-size: 14px;")
+        parcels_heading.setStyleSheet('font-weight: 600; font-size: 14px;')
         root.addWidget(parcels_heading)
         root.addWidget(self._parcel_table(detail))
 
@@ -96,7 +100,7 @@ class TrackingDetailDialog(QDialog):
         layout = QVBoxLayout(card)
         layout.setContentsMargins(14, 12, 14, 12)
         heading = QLabel("基础信息")
-        heading.setStyleSheet("font-weight: 700; font-size: 14px;")
+        heading.setStyleSheet('font-weight: 600; font-size: 14px;')
         layout.addWidget(heading)
         grid = QGridLayout()
         rows = (
@@ -126,7 +130,7 @@ class TrackingDetailDialog(QDialog):
         layout = QVBoxLayout(card)
         layout.setContentsMargins(14, 12, 14, 12)
         heading = QLabel("路由信息")
-        heading.setStyleSheet("font-weight: 700; font-size: 14px;")
+        heading.setStyleSheet('font-weight: 600; font-size: 14px;')
         layout.addWidget(heading)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -157,6 +161,7 @@ class TrackingDetailDialog(QDialog):
 
     def _parcel_table(self, detail: ShipmentDetail) -> QTableWidget:
         table = QTableWidget(len(detail.parcels), 5)
+        style_table(table)
         table.setHorizontalHeaderLabels(
             ["箱号", "客户数据", "拣货数据(实重/材积)", "申报价值", "状态"]
         )

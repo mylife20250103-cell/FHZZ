@@ -14,6 +14,8 @@ from app.services.batch_service import (
     STATUS_MERGE_PLAN_READY,
     BatchRecord,
     save_status,
+    batch_scope,
+    BatchError,
 )
 from app.services.invoice_adapters import adapter_id, get_adapter
 
@@ -90,6 +92,10 @@ def build_merge_plan(batch: BatchRecord) -> MergePlanResult:
         )
 
     manifest = read_json(manifest_path)
+    try:
+        batch_carrier, batch_country = batch_scope(batch)
+    except BatchError as exc:
+        return MergePlanResult(False, batch.batch_id, 0, None, [str(exc)])
     snapshot_files = {
         (item["source_id"], item["carton_number"]): item
         for item in batch.snapshot.get("Files", [])
@@ -113,6 +119,10 @@ def build_merge_plan(batch: BatchRecord) -> MergePlanResult:
         template_version = snap["template_version"]
         carrier_code = item["CarrierCode"]
         warehouse_code = item["WarehouseCode"]
+
+        if carrier_code != snap["carrier_code"] or warehouse_code != snap["warehouse_code"]:
+            errors.append(f"Manifest 物流商/仓库与快照不一致：{key}")
+            continue
 
         try:
             adapter = get_adapter(carrier_code, template_version)
@@ -199,6 +209,7 @@ def build_merge_plan(batch: BatchRecord) -> MergePlanResult:
                 "carrier_code": carrier_code,
                 "template_version": template_version,
                 "warehouse_code": warehouse_code,
+                "country_code": batch_country,
                 "input_count": len(members),
                 "input_files": input_files,
                 "machine_keys": machine_keys,
@@ -213,6 +224,8 @@ def build_merge_plan(batch: BatchRecord) -> MergePlanResult:
         "PlanVersion": "1.0",
         "BatchID": batch.batch_id,
         "DateID": batch.date_id,
+        "CarrierCode": batch_carrier,
+        "CountryCode": batch_country,
         "CreatedAt": datetime.now().isoformat(timespec="seconds"),
         "GroupCount": len(groups),
         "Groups": groups,

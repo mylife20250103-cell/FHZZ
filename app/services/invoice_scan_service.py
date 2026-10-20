@@ -13,8 +13,11 @@ from app.invoice_config import (
     CURRENT_CONFIG_INI,
     EXCLUDE_DIR_NAMES,
     INVOICE_SOURCES_INI,
+    INVOICE_COUNTRY_DIRS,
     is_excel_junk_file,
 )
+from app.services.address_library import normalize_country_code
+from app.services.invoice_country_service import InvoiceCountryError, WarehouseCountries, invoice_scope
 
 
 SOURCE_ID_PATTERN = re.compile(r"^[0-9A-F]{8}$")
@@ -58,6 +61,7 @@ class InvoiceRecord:
     warehouse_code: str
     fba_batch: str
     carton_number: str
+    country_code: str = ""
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,7 @@ class RegisteredSource:
     owner: str
     store_code: str
     carrier_code: str
+    country_code: str = ""
 
 
 @dataclass
@@ -85,6 +90,8 @@ class ScanResult:
 
     batch_id: str | None = None
     snapshot_path: str | None = None
+    country_code: str = ""
+    carrier_code: str = ""
 
 
 # =========================================================
@@ -263,7 +270,8 @@ def load_source_entries() -> list[RegisteredSource]:
     """
     读取 invoice_sources.ini 中已启用的 [Source.xxx]。
 
-    每个物流商一条扫描源。发票中心一次只选其中一个再扫描。
+    未登记 CountryCode 时，Path 为未合并根目录，按界面国家进入子目录。
+    登记 CountryCode 时，Path 直接指向该国家目录。
     Enabled 支持：1 / TRUE / YES / Y / ON（大小写不敏感）。
     如果文件还没建立，返回空列表。
     """
@@ -321,6 +329,7 @@ def load_source_entries() -> list[RegisteredSource]:
                     "CarrierCode",
                     fallback="",
                 ).strip().upper(),
+                country_code=normalize_country_code(parser.get(section, "CountryCode", fallback="")),
             )
         )
 
@@ -345,6 +354,8 @@ def resolve_invoice_scan_directories(
     source_directory: Path | None,
     extra_directories: list[Path],
     extra_only: bool,
+    country_code: str = "",
+    source_country_code: str = "",
 ) -> list[Path]:
     """原始扫描只用当前物流商扫描源；临时追加扫描只用手动选择的目录。"""
 
@@ -352,6 +363,13 @@ def resolve_invoice_scan_directories(
         return list(extra_directories)
     if source_directory is None:
         return []
+    if country_code:
+        if country_code not in INVOICE_COUNTRY_DIRS:
+            raise ValueError(f"未知国家：{country_code}")
+        if source_country_code and source_country_code != country_code:
+            raise ValueError("扫描源国家与所选国家不一致")
+        if not source_country_code:
+            return [source_directory / INVOICE_COUNTRY_DIRS[country_code]]
     return [source_directory]
 
 
@@ -570,15 +588,21 @@ def scan_original_invoices(
     directories: list[Path],
     *,
     allowed_date_ids: list[str] | None = None,
+    carrier_code: str = "",
+    country_code: str = "",
 ) -> ScanResult:
     """
     只扫描未合并发票本身。
     不读取询价明细，不与询价中心对齐。
     DateID 过滤使用 allowed_date_ids；未传入时仍只收 date_id 当天。
+    国家按仓库地址核验；出现其他国家/货代即失败，不静默跳过误放文件。
     """
 
     errors = []
     warnings = []
+    selected_carrier = carrier_code.strip().upper()
+    selected_country = normalize_country_code(country_code)
+    countries = WarehouseCountries()
 
     try:
 
@@ -648,6 +672,18 @@ def scan_original_invoices(
 
             continue
 
+        # 日期范围内的旧代文件也必须符合所选国家和货代，防止误放被旧代筛选掩盖。
+        try:
+            meta_carrier = meta["CarrierCode"].strip().upper()
+            actual_country = countries.country(meta_carrier, meta["WarehouseCode"])
+            invoice_scope(
+                [{"carrier_code": meta_carrier, "warehouse_code": meta["WarehouseCode"],
+                  "country_code": actual_country}],
+                carrier_code=selected_carrier, country_code=selected_country,
+            )
+        except InvoiceCountryError as exc:
+            errors.append(f"{path.name}：{exc}")
+            continue
         staged.append((path, meta))
 
     kept, generation_warnings = _keep_latest_generation(
@@ -700,6 +736,8 @@ def scan_original_invoices(
         warehouse = meta[
             "WarehouseCode"
         ]
+
+        actual_country = countries.country(carrier_code, warehouse)
 
         source_error = validate_source_id(
             source_id
@@ -883,8 +921,19 @@ def scan_original_invoices(
 
                 carton_number=
                     carton,
+                country_code=actual_country,
             )
         )
+
+    if records:
+        try:
+            selected_carrier, selected_country = invoice_scope(
+                records, carrier_code=selected_carrier, country_code=selected_country,
+            )
+        except InvoiceCountryError as exc:
+            errors.append(str(exc))
+    elif not errors:
+        errors.append("所选日期范围内没有发票")
 
     return ScanResult(
         passed=not errors,
@@ -916,5 +965,6 @@ def scan_original_invoices(
 
         errors=errors,
         warnings=warnings,
+        country_code=selected_country,
+        carrier_code=selected_carrier,
     )
- 

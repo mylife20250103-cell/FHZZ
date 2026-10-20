@@ -11,6 +11,7 @@ a = Analysis(
     pathex=[str(project)],
     binaries=[],
     datas=[
+        (str(project / "app" / "assets" / "ui"), "app/assets/ui"),
         (
             str(project / "app" / "services" / "kyd_et_cell_image_data.bin"),
             "app/services",
@@ -51,7 +52,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="发票合并系统_V1.1.18",
+    name="发票合并系统_V1.1.19",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

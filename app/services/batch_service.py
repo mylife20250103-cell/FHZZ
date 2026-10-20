@@ -12,6 +12,7 @@ from app.app_logging import log_event
 from app.invoice_config import BATCH_ROOT
 from app.json_io import read_json, write_json
 from app.services.invoice_scan_service import InvoiceRecord, ScanResult
+from app.services.invoice_country_service import InvoiceCountryError, invoice_scope
 
 
 STATUS_FIRST_SCAN_PASSED = "FIRST_SCAN_PASSED"
@@ -104,6 +105,7 @@ def _file_identity(item: InvoiceRecord | dict) -> dict:
         "store_code": item["store_code"],
         "template_version": item["template_version"],
         "warehouse_code": item["warehouse_code"],
+        **({"country_code": item["country_code"]} if item.get("country_code") else {}),
     }
 
 
@@ -367,31 +369,50 @@ def invalidate_batch(
     )
 
 
-def enforce_single_active(date_id: str) -> BatchRecord | None:
-    """
-    同一 DateID 只保留一个未完成 Batch。
-    若存在多个，保留编号最大的，其余标记 INVALIDATED。
-    """
-
-    actives = find_active_batches(date_id)
-
-    if not actives:
-        return None
-
-    actives.sort(key=lambda item: item.batch_id)
-
-    keeper = actives[-1]
-
-    for other in actives[:-1]:
-
-        invalidate_batch(
-            other,
-            "同一 DateID 只允许一个未完成 Batch",
-            other.content_hash,
-            keeper.content_hash,
+def batch_scope(record: BatchRecord) -> tuple[str, str]:
+    try:
+        return invoice_scope(
+            record.snapshot.get("Files", []),
+            carrier_code=record.snapshot.get("CarrierCode", ""),
+            country_code=record.snapshot.get("CountryCode", ""),
         )
+    except InvoiceCountryError as exc:
+        raise BatchError(str(exc)) from exc
 
-    return load_batch(keeper.directory)
+
+def enforce_single_active(date_id: str, *, carrier_code: str = "",
+                          country_code: str = "") -> BatchRecord | None:
+    """
+    同一日期、货代、国家只保留一个未完成 Batch，互不影响其他分流。
+    不可识别的旧活动批次保留原样，须重新扫描，不参与自动清理。
+    """
+
+    groups: dict[tuple[str, str], list[BatchRecord]] = {}
+    for record in find_active_batches(date_id):
+        try:
+            scope = batch_scope(record)
+        except BatchError as exc:
+            if not carrier_code and not country_code:
+                raise
+            log_event("batch", f"旧批次需重新原始扫描：{exc}",
+                      batch_id=record.batch_id, level="WARNING")
+            continue
+        if carrier_code and scope[0] != carrier_code:
+            continue
+        if country_code and scope[1] != country_code:
+            continue
+        groups.setdefault(scope, []).append(record)
+    keepers = []
+    for actives in groups.values():
+        actives.sort(key=lambda item: item.batch_id)
+        keeper = actives[-1]
+        for other in actives[:-1]:
+            invalidate_batch(other, "同一日期/物流商/国家只允许一个未完成 Batch",
+                             other.content_hash, keeper.content_hash)
+        keepers.append(keeper)
+    if not keepers:
+        return None
+    return load_batch(max(keepers, key=lambda item: item.batch_id).directory)
 
 
 def scan_result_from_snapshot(snapshot: dict) -> ScanResult:
@@ -400,6 +421,11 @@ def scan_result_from_snapshot(snapshot: dict) -> ScanResult:
         InvoiceRecord(**item)
         for item in snapshot.get("Files", [])
     ]
+
+    carrier, country = invoice_scope(records, carrier_code=snapshot.get("CarrierCode", ""),
+                                     country_code=snapshot.get("CountryCode", ""))
+    for record in records:
+        record.country_code = country
 
     return ScanResult(
         passed=True,
@@ -423,6 +449,8 @@ def scan_result_from_snapshot(snapshot: dict) -> ScanResult:
         warnings=[],
         batch_id=snapshot.get("BatchID"),
         snapshot_path=None,
+        carrier_code=carrier,
+        country_code=country,
     )
 
 
@@ -446,6 +474,8 @@ def _write_snapshot(
         "SourceCount": result.source_count,
         "WarehouseCount": result.warehouse_count,
         "CarrierCount": result.carrier_count,
+        "CarrierCode": result.carrier_code,
+        "CountryCode": result.country_code,
         "Files": [
             asdict(record)
             for record in result.records
@@ -475,12 +505,22 @@ def ensure_batch_after_first_scan(
     if not result.passed:
         raise BatchError("扫描未通过，禁止创建 Batch")
 
+    try:
+        result.carrier_code, result.country_code = invoice_scope(
+            result.records, carrier_code=result.carrier_code, country_code=result.country_code,
+        )
+    except InvoiceCountryError as exc:
+        raise BatchError(str(exc)) from exc
+    for item in result.records:
+        item.country_code = result.country_code
+
     content_hash = compute_content_hash(
         date_id,
         result.records,
     )
 
-    active = enforce_single_active(date_id)
+    active = enforce_single_active(date_id, carrier_code=result.carrier_code,
+                                   country_code=result.country_code)
 
     if active is not None:
 
@@ -510,6 +550,8 @@ def ensure_batch_after_first_scan(
         "StatusVersion": "1.0",
         "BatchID": batch_id,
         "DateID": date_id,
+        "CarrierCode": result.carrier_code,
+        "CountryCode": result.country_code,
         "Status": STATUS_FIRST_SCAN_PASSED,
         "ContentHash": content_hash,
         "CurrentStage": 1,
@@ -672,6 +714,15 @@ def complete_batch(record: BatchRecord) -> BatchRecord:
 
     from app.services.invoice_fast_merge_service import quick_merge_root
 
+    scope = batch_scope(record)
+    plan_path = record.directory / "merge_plan.json"
+    if plan_path.exists():
+        from app.services.invoice_country_service import validate_plan_scope
+        try:
+            validate_plan_scope(record.snapshot, read_json(plan_path))
+        except InvoiceCountryError as exc:
+            raise BatchError(str(exc)) from exc
+
     missing = missing_official_outputs(record)
     existing = list_official_xlsx(record)
 
@@ -695,6 +746,13 @@ def complete_batch(record: BatchRecord) -> BatchRecord:
             continue
 
         if other.status != STATUS_COMPLETED:
+            continue
+
+        try:
+            if batch_scope(other) != scope:
+                continue
+        except BatchError:
+            # 无法判定国家的历史结果禁止自动删除。
             continue
 
         old_dir = official_output_dir(other)

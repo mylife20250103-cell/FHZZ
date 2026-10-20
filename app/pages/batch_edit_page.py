@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from app.styles import (
+    CAUTION_BUTTON_STYLE,
+    style_table,
+)
+
 from datetime import datetime
 from pathlib import Path
 
@@ -98,8 +103,7 @@ class BatchEditPage(QWidget):
 
         self.run_button = QPushButton("批量执行")
         self.run_button.setStyleSheet(
-            "QPushButton { background:#F58A07; color:white; border:none;"
-            "border-radius:6px; padding:9px 18px; font-weight:600; }"
+            CAUTION_BUTTON_STYLE
         )
         self.run_button.clicked.connect(self.run_modify)
         controls.addWidget(self.run_button)
@@ -115,6 +119,7 @@ class BatchEditPage(QWidget):
         table_layout = QVBoxLayout(table_card)
         table_layout.setContentsMargins(18, 16, 18, 16)
         self.table = QTableWidget()
+        style_table(self.table)
         self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels(
             ["", "文件名", "CarrierCode", "目标单元格", "当前值", "新值", "状态"]

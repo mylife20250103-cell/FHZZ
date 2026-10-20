@@ -60,6 +60,9 @@ MERGE_RESULT_ROOT = (
     SYSTEM_ROOT / "合并结果"
 )
 
+INVOICE_COUNTRIES = {"US": "美国", "CA": "加拿大"}
+INVOICE_COUNTRY_DIRS = {"US": "美国发票", "CA": "加拿大发票"}
+
 
 KYD_TEMPLATE_PATH = (
     SYSTEM_ROOT

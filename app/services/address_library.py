@@ -27,7 +27,7 @@ class AddressRow:
     city: str
     state: str
     country: str
-    zip_code: float | None
+    zip_code: str | float | None
 
 
 def _error(message: str):
@@ -107,12 +107,56 @@ def lookup_kyd_address(
                 city=_as_text(row[9] if len(row) > 9 else None),
                 state=_as_text(row[10] if len(row) > 10 else None),
                 country=_as_text(row[11] if len(row) > 11 else None),
-                zip_code=_as_float(row[12] if len(row) > 12 else None),
+                zip_code=(
+                    _as_text(row[12]) or None
+                    if len(row) > 12 and isinstance(row[12], str)
+                    else _as_float(row[12] if len(row) > 12 else None)
+                ),
             )
     finally:
         workbook.close()
 
     raise _error(f"中央地址库没有仓库 {warehouse}")
+
+
+def normalize_country_code(value: str) -> str:
+    text = str(value or "").strip().upper()
+    return {
+        "美国": "US", "USA": "US", "UNITED STATES": "US",
+        "UNITED STATES OF AMERICA": "US", "加拿大": "CA", "CAN": "CA",
+        "CANADA": "CA",
+    }.get(text, text)
+
+
+def load_warehouse_countries(carrier_code: str, path: Path | None = None) -> dict[str, str]:
+    """一次读取所选货代的仓库国家；重复且冲突的仓库返回空值，禁止猜测。"""
+    carrier = carrier_code.strip().upper()
+    layouts = {"KYD": (KYD_SHEET, 0, 11), "MC": (MC_SHEET, 1, 12)}
+    if carrier not in layouts:
+        raise _error(f"没有物流商 {carrier} 的国家地址库")
+    name, code_col, country_col = layouts[carrier]
+    workbook = _open_central(path)
+    try:
+        if name not in workbook.sheetnames:
+            raise _error(f"中央地址库缺少工作表【{name}】")
+        rows = workbook[name].iter_rows(values_only=True)
+        header = next(rows, ())
+        if (len(header) <= country_col or "地址编码" not in _as_text(header[code_col])
+                or "国家" not in _as_text(header[country_col])):
+            raise _error(f"【{name}】缺少地址编码或国家列")
+        result: dict[str, str] = {}
+        for row in rows:
+            code = _as_text(row[code_col] if len(row) > code_col else None).upper()
+            if not code:
+                break
+            country = normalize_country_code(row[country_col] if len(row) > country_col else "")
+            if code in result and result[code] != country:
+                result[code] = ""
+            else:
+                result[code] = country
+        return result
+    finally:
+        workbook.close()
 
 
 def load_mc_address_rows(path: Path | None = None) -> list[list[object]]:

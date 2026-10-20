@@ -14,6 +14,7 @@ from app.services.batch_service import (
     save_status,
 )
 from app.services.invoice_adapters import get_adapter
+from app.services.invoice_country_service import InvoiceCountryError, validate_plan_scope
 
 
 @dataclass
@@ -52,6 +53,10 @@ def run_result_check(batch: BatchRecord) -> ResultCheckOutcome:
         )
 
     plan = read_json(plan_path)
+    try:
+        validate_plan_scope(batch.snapshot, plan)
+    except InvoiceCountryError as exc:
+        return ResultCheckOutcome(False, batch.batch_id, 0, 0, [str(exc)], [])
     groups = plan.get("Groups", [])
     merge_plan_hash = plan.get("MergePlanHash", "")
 

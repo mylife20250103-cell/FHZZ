@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from app.styles import (
+    style_table,
+)
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QShowEvent
 from PySide6.QtWidgets import (
@@ -168,6 +172,7 @@ class WatchlistPage(QWidget):
         root.addWidget(self.status_label)
 
         self.table = QTableWidget(0, len(self.HEADERS))
+        style_table(self.table)
         self.table.setHorizontalHeaderLabels(self.HEADERS)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)

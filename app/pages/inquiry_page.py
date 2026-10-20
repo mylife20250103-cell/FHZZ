@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+from app.styles import (
+    METRIC_STYLE,
+    PRIMARY_BUTTON_STYLE,
+    SECONDARY_BUTTON_STYLE,
+    STATUS_ERROR_STYLE,
+    STATUS_IDLE_STYLE,
+    STATUS_SUCCESS_STYLE,
+    style_table,
+)
+
 import os
 import subprocess
 
@@ -26,6 +36,8 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QVBoxLayout,
     QWidget,
+    QScrollArea,
+    QLayout,
 )
 
 from app.date_ids import (
@@ -68,7 +80,14 @@ class InquiryPage(QWidget):
 
     def build_ui(self):
 
-        root = QVBoxLayout(self)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        container = QWidget()
+        root = QVBoxLayout(container)
+        root.setSizeConstraint(QLayout.SetMinAndMaxSize)
 
         root.setContentsMargins(
             30,
@@ -247,24 +266,7 @@ class InquiryPage(QWidget):
         )
 
         self.extra_scan_button.setStyleSheet(
-            """
-            QPushButton {
-                background:#16A765;
-                color:white;
-                border:none;
-                border-radius:6px;
-                padding:9px 18px;
-                font-weight:600;
-            }
-
-            QPushButton:hover {
-                background:#13955A;
-            }
-
-            QPushButton:disabled {
-                background:#C8D0D9;
-            }
-            """
+            SECONDARY_BUTTON_STYLE
         )
 
         self.extra_scan_button.clicked.connect(
@@ -280,20 +282,7 @@ class InquiryPage(QWidget):
         )
 
         self.scan_button.setStyleSheet(
-            """
-            QPushButton {
-                background:#16A765;
-                color:white;
-                border:none;
-                border-radius:6px;
-                padding:9px 18px;
-                font-weight:600;
-            }
-
-            QPushButton:hover {
-                background:#13955A;
-            }
-            """
+            PRIMARY_BUTTON_STYLE
         )
 
         self.scan_button.clicked.connect(
@@ -411,10 +400,7 @@ class InquiryPage(QWidget):
             )
 
             value_label.setStyleSheet(
-                """
-                font-size:20px;
-                font-weight:700;
-                """
+                METRIC_STYLE
             )
 
             box.addWidget(name_label)
@@ -434,11 +420,7 @@ class InquiryPage(QWidget):
         )
 
         self.status_label.setStyleSheet(
-            """
-            padding:8px;
-            background:#F5F7FB;
-            border-radius:5px;
-            """
+            STATUS_IDLE_STYLE
         )
 
         summary_layout.addWidget(
@@ -483,6 +465,7 @@ class InquiryPage(QWidget):
         )
 
         self.table = QTableWidget()
+        style_table(self.table)
 
         self.table.setColumnCount(3)
 
@@ -536,20 +519,7 @@ class InquiryPage(QWidget):
         )
 
         self.generate_button.setStyleSheet(
-            """
-            QPushButton {
-                background:#16A765;
-                color:white;
-                border:none;
-                border-radius:6px;
-                padding:10px 24px;
-                font-weight:600;
-            }
-
-            QPushButton:disabled {
-                background:#C8D0D9;
-            }
-            """
+            PRIMARY_BUTTON_STYLE
         )
 
         self.generate_button.clicked.connect(
@@ -563,6 +533,9 @@ class InquiryPage(QWidget):
         root.addLayout(
             actions
         )
+
+        scroll.setWidget(container)
+        page_layout.addWidget(scroll)
 
         self.refresh_source_label()
 
@@ -599,11 +572,7 @@ class InquiryPage(QWidget):
             "国家站点已更改，请重新扫描"
         )
         self.status_label.setStyleSheet(
-            """
-            padding:8px;
-            background:#F5F7FB;
-            border-radius:5px;
-            """
+            STATUS_IDLE_STYLE
         )
 
     def default_directories(self) -> list[Path]:
@@ -868,12 +837,7 @@ class InquiryPage(QWidget):
             )
 
             self.status_label.setStyleSheet(
-                """
-                padding:8px;
-                color:#087A45;
-                background:#E8F7EF;
-                border-radius:5px;
-                """
+                STATUS_SUCCESS_STYLE
             )
 
             self.generate_button.setEnabled(
@@ -902,12 +866,7 @@ class InquiryPage(QWidget):
             )
 
             self.status_label.setStyleSheet(
-                """
-                padding:8px;
-                color:#B42318;
-                background:#FFF0F0;
-                border-radius:5px;
-                """
+                STATUS_ERROR_STYLE
             )
 
     # ==========================================

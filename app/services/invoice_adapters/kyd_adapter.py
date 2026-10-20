@@ -328,8 +328,12 @@ class KydAdapter(InvoiceMergeAdapter):
             try:
                 address = lookup_kyd_address(warehouse)
                 zip_value = ws.cell_value(11, 1)
-                if address.zip_code is not None and _is_number(zip_value):
-                    if abs(float(zip_value) - float(address.zip_code)) >= 0.1:
+                if address.zip_code is not None:
+                    if _is_number(address.zip_code) and _is_number(zip_value):
+                        zip_matches = abs(float(zip_value) - float(address.zip_code)) < 0.1
+                    else:
+                        zip_matches = str(zip_value).strip().upper() == str(address.zip_code).strip().upper()
+                    if not zip_matches:
                         errors.append(
                             f"{path.name}：邮编 {zip_value} "
                             f"与地址库 {address.zip_code} 不匹配"

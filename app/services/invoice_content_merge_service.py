@@ -14,7 +14,10 @@ from app.services.batch_service import (
     save_status,
 )
 from app.services.invoice_adapters import get_adapter
-from app.services.invoice_scan_service import read_system_meta
+from app.services.invoice_scan_service import read_system_meta, sha256_file
+from app.services.invoice_country_service import (
+    InvoiceCountryError, WarehouseCountries, invoice_scope, validate_plan_scope,
+)
 from app.services.merge_diagnose_service import diagnose_merge_group
 
 
@@ -82,6 +85,14 @@ def run_content_merge(batch: BatchRecord) -> ContentMergeResult:
             errors=["MergePlan 没有分组"],
         )
 
+    try:
+        carrier, country = validate_plan_scope(batch.snapshot, plan)
+    except InvoiceCountryError as exc:
+        return ContentMergeResult(False, batch.batch_id, [], [str(exc)])
+    countries = WarehouseCountries()
+    snapshots = {(item["source_id"], item["carton_number"]): item
+                 for item in batch.snapshot.get("Files", [])}
+
     work_root = LOCAL_TEMP_ROOT / batch.batch_id / "content_merge"
     _cleanup(work_root)
     work_root.mkdir(parents=True, exist_ok=True)
@@ -127,6 +138,24 @@ def run_content_merge(batch: BatchRecord) -> ContentMergeResult:
                 meta, meta_error = read_system_meta(local_path)
                 if meta_error:
                     group_errors.append(meta_error)
+                    continue
+
+                try:
+                    invoice_scope(
+                        [{"carrier_code": meta["CarrierCode"],
+                          "warehouse_code": meta["WarehouseCode"]}],
+                        carrier_code=carrier, country_code=country,
+                        verify_addresses=True, countries=countries,
+                    )
+                    key = (meta["SourceID"], meta["CartonNumber"])
+                    expected = snapshots.get(key)
+                    if (expected is None or list(key) not in group["machine_keys"]
+                            or meta["WarehouseCode"] != group["warehouse_code"]):
+                        raise InvoiceCountryError("输入发票身份/仓库与计划不一致")
+                    if sha256_file(local_path) != expected["sha256"]:
+                        raise InvoiceCountryError("输入发票 SHA256 已变化，请重新原始扫描")
+                except InvoiceCountryError as exc:
+                    group_errors.append(f"{source_path.name}：{exc}")
                     continue
 
                 group_errors.extend(

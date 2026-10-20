@@ -1022,7 +1022,10 @@ def fill_kyd_template(
     start, end = template_sheet_span(book)
     if address.zip_code is None:
         raise _error(f"地址库 {warehouse} 没有邮编")
-    _patch_formula_cache(book, start, end, 11, 1, number=address.zip_code)
+    if isinstance(address.zip_code, str):
+        _patch_formula_cache(book, start, end, 11, 1, text=address.zip_code)
+    else:
+        _patch_formula_cache(book, start, end, 11, 1, number=address.zip_code)
     start, end = template_sheet_span(book)
     _patch_formula_cache(book, start, end, 12, 1, text=address.country)
     start, end = template_sheet_span(book)

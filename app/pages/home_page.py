@@ -1,7 +1,12 @@
+
+from app.styles import (
+    style_table,
+)
+from app.ui_icons import navigation_icon
 import getpass
 from datetime import datetime
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -337,6 +342,8 @@ class HomePage(QWidget):
         )
 
         tips_icon = QLabel("💡")
+        tips_icon.setPixmap(navigation_icon("info").pixmap(QSize(16, 16)))
+        tips_icon.setAccessibleName("提示")
 
         tips_text = QLabel(
             "正常工作时直接进入对应模块即可。"
@@ -396,7 +403,7 @@ class HomePage(QWidget):
         )
 
         divider.setStyleSheet(
-            "color:#EEF1F5;"
+            'color:#E8E8ED;'
         )
 
         layout.addWidget(divider)
@@ -406,11 +413,7 @@ class HomePage(QWidget):
         )
 
         empty_title.setStyleSheet(
-            """
-            font-size: 15px;
-            font-weight: 600;
-            color: #374151;
-            """
+            '\n            font-size: 15px;\n            font-weight: 600;\n            color: #515154;\n            '
         )
 
         description = QLabel(
@@ -485,6 +488,7 @@ class HomePage(QWidget):
         layout.addLayout(title_row)
 
         table = QTableWidget()
+        style_table(table)
 
         table.setColumnCount(4)
 
@@ -614,23 +618,7 @@ class HomePage(QWidget):
             )
 
             button.setStyleSheet(
-                """
-                QPushButton {
-                    text-align: left;
-                    background: white;
-                    border: none;
-                    border-bottom:
-                        1px solid #EEF1F5;
-                    padding: 14px 5px;
-                    font-size: 13px;
-                    color: #374151;
-                }
-
-                QPushButton:hover {
-                    background: #F7FAFF;
-                    color: #1677FF;
-                }
-                """
+                '\n                QPushButton {\n                    text-align: left;\n                    background: white;\n                    border: none;\n                    border-bottom:\n                        1px solid #E8E8ED;\n                    padding: 14px 5px;\n                    font-size: 13px;\n                    color: #515154;\n                }\n\n                QPushButton:hover {\n                    background: #F5F5F7;\n                    color: #0071E3;\n                }\n                '
             )
 
             button.clicked.connect(

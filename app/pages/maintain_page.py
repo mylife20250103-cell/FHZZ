@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from app.styles import (
+    PATH_STYLE,
+)
+
 import os
 from pathlib import Path
 
@@ -79,10 +83,10 @@ class MaintainPage(QWidget):
         exists = QLabel()
         if path.exists():
             exists.setText("文件存在")
-            exists.setStyleSheet("color:#16A765; font-size:12px; font-weight:600;")
+            exists.setStyleSheet('color:#247449; font-size:12px; font-weight:600;')
         else:
             exists.setText("文件不存在")
-            exists.setStyleSheet("color:#D64B6A; font-size:12px; font-weight:600;")
+            exists.setStyleSheet('color:#B33B35; font-size:12px; font-weight:600;')
         header.addWidget(exists)
         layout.addLayout(header)
 
@@ -95,8 +99,7 @@ class MaintainPage(QWidget):
         path_label.setWordWrap(True)
         path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         path_label.setStyleSheet(
-            "font-size:12px; color:#39435A; background:#F8FAFD;"
-            "border:1px solid #E9EDF3; border-radius:6px; padding:8px 10px;"
+            PATH_STYLE
         )
         layout.addWidget(path_label)
 

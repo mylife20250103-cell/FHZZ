@@ -1,5 +1,19 @@
 from __future__ import annotations
 
+from app.styles import (
+    METRIC_STYLE,
+    PRIMARY_BUTTON_STYLE,
+    STATUS_ERROR_STYLE,
+    STATUS_IDLE_STYLE,
+    STATUS_INFO_STYLE,
+    STATUS_SUCCESS_STYLE,
+    STATUS_WARNING_STYLE,
+    STEP_ACTIVE_STYLE,
+    STEP_DONE_STYLE,
+    STEP_PENDING_STYLE,
+    style_table,
+)
+
 import os
 from pathlib import Path
 
@@ -23,6 +37,8 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QVBoxLayout,
     QWidget,
+    QScrollArea,
+    QLayout,
 )
 
 from app.date_ids import (
@@ -49,7 +65,7 @@ from app.services.batch_service import (
     official_output_dir,
     scan_result_from_snapshot,
 )
-from app.invoice_config import INVOICE_MANUAL_SCAN_ROOT
+from app.invoice_config import INVOICE_MANUAL_SCAN_ROOT, INVOICE_COUNTRIES
 from app.services.invoice_content_merge_service import run_content_merge
 from app.services.invoice_prepare_service import run_prepare_merge
 from app.services.invoice_result_check_service import run_result_check
@@ -107,7 +123,14 @@ class InvoicePage(QWidget):
 
     def build_ui(self):
 
-        root = QVBoxLayout(self)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        container = QWidget()
+        root = QVBoxLayout(container)
+        root.setSizeConstraint(QLayout.SetMinAndMaxSize)
 
         root.setContentsMargins(
             30,
@@ -131,7 +154,7 @@ class InvoicePage(QWidget):
         )
 
         subtitle = QLabel(
-            "按日期范围扫描一个物流商的原始发票，"
+            "选择物流商和国家，按日期范围扫描原始发票，"
             "批次和合并结果始终写到今天。"
             "与询价中心互不依赖。"
             "合并后可在本页打开货代下单后台。"
@@ -183,16 +206,13 @@ class InvoicePage(QWidget):
             if index == 0:
 
                 label.setStyleSheet(
-                    """
-                    color:#1677FF;
-                    font-weight:700;
-                    """
+                    STEP_ACTIVE_STYLE
                 )
 
             else:
 
                 label.setStyleSheet(
-                    "color:#98A1B2;"
+                    STEP_PENDING_STYLE
                 )
 
             self.step_labels.append(
@@ -276,11 +296,20 @@ class InvoicePage(QWidget):
         controls.addWidget(
             self.output_date_label
         )
+        controls.addStretch()
 
-        controls.addSpacing(16)
+        setting_layout.addLayout(controls)
+        controls = QHBoxLayout()
+
+        controls.addWidget(QLabel("国家："))
+        self.country_combo = QComboBox()
+        for code, name in INVOICE_COUNTRIES.items():
+            self.country_combo.addItem(name, code)
+        self.country_combo.currentIndexChanged.connect(self.on_country_changed)
+        controls.addWidget(self.country_combo)
 
         controls.addWidget(
-            QLabel("扫描源：")
+            QLabel("物流商：")
         )
 
         self.source_combo = QComboBox()
@@ -290,7 +319,7 @@ class InvoicePage(QWidget):
         )
 
         self.source_combo.currentIndexChanged.connect(
-            self.refresh_paths
+            self.on_source_changed
         )
 
         controls.addWidget(
@@ -403,24 +432,7 @@ class InvoicePage(QWidget):
         )
 
         self.primary_button.setStyleSheet(
-            """
-            QPushButton {
-                background:#1677FF;
-                color:white;
-                border:none;
-                border-radius:6px;
-                padding:9px 20px;
-                font-weight:600;
-            }
-
-            QPushButton:hover {
-                background:#1269DD;
-            }
-
-            QPushButton:disabled {
-                background:#C8D0D9;
-            }
-            """
+            PRIMARY_BUTTON_STYLE
         )
 
         self.primary_button.clicked.connect(
@@ -541,10 +553,7 @@ class InvoicePage(QWidget):
             )
 
             label.setStyleSheet(
-                """
-                font-size:16px;
-                font-weight:700;
-                """
+                METRIC_STYLE
             )
 
             box.addWidget(
@@ -564,11 +573,7 @@ class InvoicePage(QWidget):
         )
 
         self.status_label.setStyleSheet(
-            """
-            padding:9px;
-            background:#F5F7FB;
-            border-radius:5px;
-            """
+            STATUS_IDLE_STYLE
         )
 
         overview_layout.addWidget(
@@ -608,6 +613,7 @@ class InvoicePage(QWidget):
         )
 
         self.table = QTableWidget()
+        style_table(self.table)
 
         self.table.setColumnCount(4)
 
@@ -682,6 +688,9 @@ class InvoicePage(QWidget):
 
         root.addWidget(order_card)
 
+        scroll.setWidget(container)
+        page_layout.addWidget(scroll)
+
         self.refresh_source_combo()
         self.refresh_paths()
         self.refresh_order_portals()
@@ -711,6 +720,9 @@ class InvoicePage(QWidget):
 
         entries = load_source_entries()
         current_key = self.source_combo.currentData()
+        previous = next((entry for entry in entries if entry.source_key == current_key), None)
+        country = self.selected_country_code()
+        entries = [entry for entry in entries if not entry.country_code or entry.country_code == country]
 
         self.source_combo.blockSignals(True)
         self.source_combo.clear()
@@ -738,8 +750,31 @@ class InvoicePage(QWidget):
                 self.source_combo.setCurrentIndex(
                     index
                 )
+            elif previous:
+                for entry in entries:
+                    if entry.carrier_code == previous.carrier_code and entry.owner == previous.owner:
+                        self.source_combo.setCurrentIndex(self.source_combo.findData(entry.source_key))
+                        break
 
         self.source_combo.blockSignals(False)
+
+    def selected_country_code(self) -> str:
+        return self.country_combo.currentData() or ""
+
+    def on_country_changed(self):
+        if not hasattr(self, "status_label") or self._busy_running():
+            return
+        self.clear_scan_view()
+        self.refresh_source_combo()
+        self.refresh_paths()
+        self.restore_active_batch()
+
+    def on_source_changed(self):
+        if not hasattr(self, "status_label") or self._busy_running():
+            return
+        self.clear_scan_view()
+        self.refresh_paths()
+        self.restore_active_batch()
 
     def selected_source(self):
 
@@ -771,6 +806,8 @@ class InvoicePage(QWidget):
         for entry in load_source_entries():
 
             if entry.carrier_code != carrier:
+                continue
+            if entry.country_code and entry.country_code != self.selected_country_code():
                 continue
 
             index = self.source_combo.findData(
@@ -804,9 +841,14 @@ class InvoicePage(QWidget):
 
         if entry:
 
+            directories = resolve_invoice_scan_directories(
+                source_directory=entry.path, extra_directories=[], extra_only=False,
+                country_code=self.selected_country_code(), source_country_code=entry.country_code,
+            )
+
             self.path_list.addItem(
                 f"[中央·{entry.carrier_code}] "
-                f"{entry.path}"
+                f"{directories[0]}"
             )
 
             extra_count = len(
@@ -821,6 +863,7 @@ class InvoicePage(QWidget):
 
             self.source_info.setText(
                 f"本次只扫 {entry.carrier_code}"
+                f" · {INVOICE_COUNTRIES[self.selected_country_code()]}"
                 f"{extra_text}"
             )
 
@@ -1011,6 +1054,7 @@ class InvoicePage(QWidget):
         self.reset_button.setEnabled(not busy)
         self.open_merged_button.setEnabled(not busy)
         self.source_combo.setEnabled(not busy)
+        self.country_combo.setEnabled(not busy)
         if hasattr(self, "order_carrier_combo"):
             self.order_carrier_combo.setEnabled(not busy)
             self.order_account_combo.setEnabled(not busy)
@@ -1026,11 +1070,7 @@ class InvoicePage(QWidget):
         if busy and text:
             self.status_label.setText(text)
             self.status_label.setStyleSheet(
-                """
-                padding:9px;
-                background:#F5F7FB;
-                border-radius:5px;
-                """
+                STATUS_IDLE_STYLE
             )
 
     def _busy_running(self) -> bool:
@@ -1063,12 +1103,7 @@ class InvoicePage(QWidget):
 
         self.status_label.setText(message)
         self.status_label.setStyleSheet(
-            """
-            padding:9px;
-            color:#087A45;
-            background:#E8F7EF;
-            border-radius:5px;
-            """
+            STATUS_SUCCESS_STYLE
         )
 
     def _show_fail(self, message: str, errors: list[str] | None = None):
@@ -1083,12 +1118,7 @@ class InvoicePage(QWidget):
 
         self.status_label.setText(preview)
         self.status_label.setStyleSheet(
-            """
-            padding:9px;
-            color:#B42318;
-            background:#FFF0F0;
-            border-radius:5px;
-            """
+            STATUS_ERROR_STYLE
         )
 
     def _run_job(self, job, stage: str, on_success, busy_text: str, use_com=False):
@@ -1125,6 +1155,8 @@ class InvoicePage(QWidget):
                 source_directory=entry.path if entry else None,
                 extra_directories=self.extra_directories,
                 extra_only=False,
+                country_code=self.selected_country_code(),
+                source_country_code=entry.country_code if entry else "",
             ),
             empty_message=(
                 "请先选择一个物流商扫描源。"
@@ -1178,6 +1210,13 @@ class InvoicePage(QWidget):
 
             return
 
+        entry = self.selected_source()
+        if entry is None:
+            QMessageBox.warning(self, "没有扫描源", "请先选择物流商和国家，再扫描发票目录。")
+            return
+        carrier_code = entry.carrier_code
+        country_code = self.selected_country_code()
+
         date_id = self.date_id()
         start, end = self.scan_range()
         allowed_date_ids = iter_date_ids(start, end)
@@ -1190,6 +1229,8 @@ class InvoicePage(QWidget):
                 date_id=date_id,
                 directories=directories,
                 allowed_date_ids=allowed_date_ids,
+                carrier_code=carrier_code,
+                country_code=country_code,
             )
 
             batch_info = None
@@ -1287,12 +1328,7 @@ class InvoicePage(QWidget):
         self.status_label.setText(message)
 
         self.status_label.setStyleSheet(
-            """
-            padding:9px;
-            color:#087A45;
-            background:#E8F7EF;
-            border-radius:5px;
-            """
+            STATUS_SUCCESS_STYLE
         )
 
         log_event(
@@ -1318,12 +1354,7 @@ class InvoicePage(QWidget):
         )
 
         self.status_label.setStyleSheet(
-            """
-            padding:9px;
-            color:#B42318;
-            background:#FFF0F0;
-            border-radius:5px;
-            """
+            STATUS_ERROR_STYLE
         )
 
         QMessageBox.critical(
@@ -1731,12 +1762,7 @@ class InvoicePage(QWidget):
         )
 
         self.status_label.setStyleSheet(
-            """
-            padding:9px;
-            color:#1677FF;
-            background:#EAF2FF;
-            border-radius:5px;
-            """
+            STATUS_INFO_STYLE
         )
 
         log_event(
@@ -1754,8 +1780,13 @@ class InvoicePage(QWidget):
         if self._skip_restore:
             return
 
+        entry = self.selected_source()
+        if entry is None:
+            return
+
         try:
-            record = enforce_single_active(date_id)
+            record = enforce_single_active(date_id, carrier_code=entry.carrier_code,
+                                           country_code=self.selected_country_code())
 
         except Exception as exc:
 
@@ -1777,9 +1808,11 @@ class InvoicePage(QWidget):
             self.refresh_primary_button()
             return
 
-        result = scan_result_from_snapshot(
-            record.snapshot
-        )
+        try:
+            result = scan_result_from_snapshot(record.snapshot)
+        except Exception as exc:
+            self.status_label.setText(f"旧批次无法恢复，请重新原始扫描：{exc}")
+            return
 
         self.scan_result = result
         self.render_result(result)
@@ -1793,12 +1826,7 @@ class InvoicePage(QWidget):
         )
 
         self.status_label.setStyleSheet(
-            """
-            padding:9px;
-            color:#1677FF;
-            background:#EAF2FF;
-            border-radius:5px;
-            """
+            STATUS_INFO_STYLE
         )
 
     def apply_batch(self, record: BatchRecord):
@@ -1855,25 +1883,19 @@ class InvoicePage(QWidget):
             if index < active_stage:
 
                 label.setStyleSheet(
-                    """
-                    color:#087A45;
-                    font-weight:700;
-                    """
+                    STEP_DONE_STYLE
                 )
 
             elif active_stage <= index <= end_stage:
 
                 label.setStyleSheet(
-                    """
-                    color:#1677FF;
-                    font-weight:700;
-                    """
+                    STEP_ACTIVE_STYLE
                 )
 
             else:
 
                 label.setStyleSheet(
-                    "color:#98A1B2;"
+                    STEP_PENDING_STYLE
                 )
 
     # =====================================================
@@ -2045,21 +2067,11 @@ class InvoicePage(QWidget):
 
             if result.warnings:
                 self.status_label.setStyleSheet(
-                    """
-                    padding:9px;
-                    color:#8A5A00;
-                    background:#FFF7E6;
-                    border-radius:5px;
-                    """
+                    STATUS_WARNING_STYLE
                 )
             else:
                 self.status_label.setStyleSheet(
-                    """
-                    padding:9px;
-                    color:#087A45;
-                    background:#E8F7EF;
-                    border-radius:5px;
-                    """
+                    STATUS_SUCCESS_STYLE
                 )
 
         else:
@@ -2085,12 +2097,7 @@ class InvoicePage(QWidget):
             )
 
             self.status_label.setStyleSheet(
-                """
-                padding:9px;
-                color:#B42318;
-                background:#FFF0F0;
-                border-radius:5px;
-                """
+                STATUS_ERROR_STYLE
             )
 
         self.refresh_order_portals(
