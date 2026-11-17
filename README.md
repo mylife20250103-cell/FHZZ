@@ -2,9 +2,9 @@
 
 面向多店铺 Amazon FBA 发货工作的 Windows 桌面程序，用于汇总物流询价、合并货代商业发票、查看发货和物流轨迹，以及批量修改渠道、检查敏感词。
 
-当前代码版本为 **v1.1.20**。业务数据、模板和公共配置主要放在公司 OneDrive，程序代码由 Git 管理。
+当前代码版本为 **v1.1.21**。业务数据、模板和公共配置主要放在公司 OneDrive，程序代码由 Git 管理。
 
-V1.1.20 同时发布货件数据核对、发票报关修改和渠道规则模式，保留已有国家分流、浅色界面及发票合并方式。请使用 `发票合并系统_V1.1.20.exe`；旧 exe 不包含本次三项新增功能。
+V1.1.20 同时发布货件数据核对、发票报关修改和渠道规则模式；其发布包存在 QtGui 启动失败，已在 V1.1.21 修复。请使用 `发票合并系统_V1.1.21.exe`，三项功能及已有国家分流、浅色界面与合并方式均保留。
 
 ## 文档入口
 
@@ -12,6 +12,7 @@ V1.1.20 同时发布货件数据核对、发票报关修改和渠道规则模式
 - [操作说明书](docs/发票合并系统应用说明书.md)：日常使用与常见问题。
 - [版本历史](docs/V1.1发版说明.md)：V1.1 至 V1.1.20 的主要变化。
 - [V1.1.20 发布记录](docs/releases/V1.1.20.md)：本次范围、验证结果和交付位置。
+- [V1.1.21 启动修复](docs/releases/V1.1.21.md)：打包依赖错误原因、实际程序启动验证和修复版交付。
 - [维护入口](AGENTS.md)：后续维护时先读取的项目约定。
 - [早期追踪调查](docs/shipment_tracking/current_system_map.md)：历史设计依据，部分结论已被后续实现替代。
 
@@ -64,7 +65,7 @@ py -3.11 -m venv .venv
 & .\.venv\Scripts\python.exe -m PyInstaller --noconfirm InvoiceMergeSystem.spec
 ```
 
-PyInstaller 未列入 `requirements.txt`；本机现有环境已安装。当前发布产物位于 `dist/发票合并系统_V1.1.20.exe`，含使用说明的压缩包位于 `release/发票合并系统_V1.1.20.zip`。本次回归结果和仍需人工验收的事项见[发布记录](docs/releases/V1.1.20.md)。
+PyInstaller 未列入 `requirements.txt`；本机现有环境已安装。spec 在分析依赖前将构建 PATH 限定为当前 Python 和 Windows 系统目录，包自身 DLL 由 hook 收集，防止宿主工具的同名 ICU/OpenSSL 混入。当前产物位于 `dist/发票合并系统_V1.1.21.exe`，完整包位于 `release/发票合并系统_V1.1.21.zip`。发布前必须实际运行此 exe 并进入主界面，不能仅凭源码界面检查或构建成功判定可启动。验证结果及交付状态见[发布记录](docs/releases/V1.1.21.md)。
 
 正式发版复制到公司 OneDrive 的版本目录：
 
@@ -76,6 +77,6 @@ I:\OneDrive\OneDrive - Lion\【采购仓储】\【发货单】\【发票合并�
 
 ## Git
 
-仓库远程地址：[mylife20250103-cell/FHZZ](https://github.com/mylife20250103-cell/FHZZ)。本次V1.1.20沿用 `dev` 分支并创建 `v1.1.20` 标签；`main` 仍保留较早版本，不作为本次发布来源。
+仓库远程地址：[mylife20250103-cell/FHZZ](https://github.com/mylife20250103-cell/FHZZ)。V1.1.20 和 V1.1.21 沿用 `dev` 分支发布，分别创建版本标签；`main` 仍保留较早版本，不作为本次发布来源。V1.1.20 的原提交与附件保留，启动修复以 V1.1.21 单独发布。
 
 代码仓库与 OneDrive 业务数据需要分别保留。`dist/`、`release/`、`build/`、`.venv/`、`temp/` 和 `logs/` 当前被 Git 忽略，提交代码不会把这些内容一起备份。

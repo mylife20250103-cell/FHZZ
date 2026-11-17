@@ -1,6 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+import os
+import sys
+
+# PyInstaller 按 PATH 解析依赖；宿主工具的 ICU/OpenSSL 不能进入程序包。
+# 依赖只从当前 Python、安装的包（由各 hook 添加）和 Windows 系统目录获取。
+windows = Path(os.environ["SystemRoot"])
+os.environ["PATH"] = os.pathsep.join(
+    str(path)
+    for path in (
+        Path(sys.executable).parent,
+        Path(sys.base_prefix),
+        Path(sys.base_prefix) / "DLLs",
+        windows / "System32",
+        windows,
+    )
+    if path.is_dir()
+)
 
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -52,7 +69,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="发票合并系统_V1.1.20",
+    name="发票合并系统_V1.1.21",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
