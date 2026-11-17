@@ -20,6 +20,7 @@ from pathlib import Path
 from PySide6.QtCore import (
     QDate,
     QUrl,
+    Signal,
 )
 from PySide6.QtGui import QDesktopServices, QShowEvent
 from PySide6.QtWidgets import (
@@ -82,9 +83,12 @@ from app.shipment_tracking.providers.nextsls import (
     portals_share_same_host,
 )
 from app.workers import TaskWorker
+from app.pages.reconciliation_panel import ReconciliationPanel
 
 
 class InvoicePage(QWidget):
+
+    content_merge_succeeded = Signal(object)
 
     def __init__(
         self,
@@ -688,6 +692,10 @@ class InvoicePage(QWidget):
 
         root.addWidget(order_card)
 
+        self.reconciliation_panel = ReconciliationPanel(self)
+        self.content_merge_succeeded.connect(self.reconciliation_panel.receive_merge)
+        root.addWidget(self.reconciliation_panel)
+
         scroll.setWidget(container)
         page_layout.addWidget(scroll)
 
@@ -705,6 +713,9 @@ class InvoicePage(QWidget):
         if start > end:
             start, end = end, start
         return start, end
+
+    def can_close(self) -> bool:
+        return self.reconciliation_panel.can_close()
 
     def date_id(self):
         return today_date_id()
@@ -1438,6 +1449,12 @@ class InvoicePage(QWidget):
         record = self._reload_current_batch()
 
         if result.passed:
+            if result.output_files:
+                self.content_merge_succeeded.emit({
+                    "directory": os.path.commonpath([str(Path(p).parent) for p in result.output_files]),
+                    "carrier": record.snapshot.get("CarrierCode", "") if record else "",
+                    "country": record.snapshot.get("CountryCode", "") if record else "",
+                })
             self._show_pass(
                 "PASS｜内容合并完成，"
                 f"{len(result.output_files)} 个最终文件"

@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QCheckBox,
     QAbstractItemView,
+    QTabWidget,
 )
 
 from app.invoice_config import MERGE_RESULT_ROOT, QUICK_MERGE_ROOT
@@ -35,6 +36,7 @@ from app.services.batch_modify_service import (
     preview_files,
 )
 from app.workers import TaskWorker
+from app.pages.channel_batch_panel import ChannelBatchPanel
 
 CHECKBOX_STYLE = """
 QCheckBox {
@@ -51,10 +53,11 @@ QCheckBox::indicator {
 
 class BatchEditPage(QWidget):
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, channel_state_path=None, channel_catalog_path=None):
         super().__init__(parent)
         self.rows = []
         self._worker = None
+        self.channel_panel = ChannelBatchPanel(self, state_path=channel_state_path, catalog_path=channel_catalog_path)
         self.build_ui()
 
     def build_ui(self):
@@ -66,12 +69,19 @@ class BatchEditPage(QWidget):
         title = QLabel("批量修改单元格值")
         title.setObjectName("PageTitle")
         subtitle = QLabel(
-            "默认打开「合并结果」。快越达合并文件是 KYD_仓库_N箱.xls，"
-            "不经 Excel，避免上传失败"
+            "按仓库与渠道规则预览服务，人工确认后另存整批；手工修改保留原有操作。"
         )
         subtitle.setObjectName("PageSubtitle")
         root.addWidget(title)
         root.addWidget(subtitle)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.channel_panel, "按渠道规则")
+        manual_page = QWidget()
+        manual_layout = QVBoxLayout(manual_page)
+        manual_layout.setContentsMargins(0, 8, 0, 0)
+        self.tabs.addTab(manual_page, "手工修改")
+        root.addWidget(self.tabs, 1)
 
         card = QFrame()
         card.setObjectName("Card")
@@ -112,7 +122,7 @@ class BatchEditPage(QWidget):
         self.status = QLabel("请选择「合并结果」里的 KYD_仓库_N箱.xls，不要选全部发票汇总里的源发票")
         self.status.setObjectName("SecondaryText")
         layout.addWidget(self.status)
-        root.addWidget(card)
+        manual_layout.addWidget(card)
 
         table_card = QFrame()
         table_card.setObjectName("Card")
@@ -131,7 +141,16 @@ class BatchEditPage(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._install_header_checkbox()
         table_layout.addWidget(self.table)
-        root.addWidget(table_card, 1)
+        manual_layout.addWidget(table_card, 1)
+
+    def receive_merge(self, context):
+        self.channel_panel.receive_merge(context)
+
+    def can_close(self):
+        if self._worker and self._worker.isRunning():
+            QMessageBox.warning(self, "任务正在执行", "请等待手工修改任务结束后再关闭。")
+            return False
+        return self.channel_panel.can_close()
 
     def _install_header_checkbox(self):
 

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from app.pages.home_page import HomePage
 from app.pages.inquiry_page import InquiryPage
 from app.pages.invoice_page import InvoicePage
+from app.pages.customs_page import CustomsPage
 from app.pages.batch_edit_page import BatchEditPage
 from app.pages.sensitive_page import SensitivePage
 from app.pages.maintain_page import MaintainPage
@@ -78,6 +79,7 @@ class MainWindow(QMainWindow):
             ("home", "首页"),
             ("inquiry", "询价中心"),
             ("invoice", "发票中心"),
+            ("customs", "发票报关修改"),
             ("tracking", "发货追踪"),
             ("watchlist", "重点追踪"),
             ("batch_edit", "批量修改单元格值"),
@@ -148,9 +150,16 @@ class MainWindow(QMainWindow):
         self.pages["inquiry"] = InquiryPage()
 
         self.pages["invoice"] = InvoicePage()
+        self.pages["customs"] = CustomsPage()
+        self.pages["invoice"].content_merge_succeeded.connect(
+            self.pages["customs"].receive_merge
+        )
         self.pages["tracking"] = TrackingPage()
         self.pages["watchlist"] = WatchlistPage()
         self.pages["batch_edit"] = BatchEditPage()
+        batch_receiver = getattr(self.pages["batch_edit"], "receive_merge", None)
+        if batch_receiver is not None:
+            self.pages["invoice"].content_merge_succeeded.connect(batch_receiver)
         self.pages["sensitive"] = SensitivePage()
         self.pages["maintain"] = MaintainPage()
 
@@ -170,3 +179,19 @@ class MainWindow(QMainWindow):
 
         for name, button in self.nav_buttons.items():
             button.setChecked(name == route)
+
+    def closeEvent(self, event):
+        invoice = self.pages.get("invoice")
+        invoice_can_close = getattr(invoice, "can_close", None)
+        if invoice_can_close is not None and not invoice_can_close():
+            event.ignore()
+            return
+        customs = self.pages.get("customs")
+        if customs is not None and not customs.can_close():
+            event.ignore()
+            return
+        batch_editor = self.pages.get("batch_edit")
+        if batch_editor is not None and hasattr(batch_editor, "can_close") and not batch_editor.can_close():
+            event.ignore()
+            return
+        super().closeEvent(event)
