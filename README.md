@@ -76,7 +76,7 @@ PyInstaller 未列入 `requirements.txt`；本机现有环境已安装。spec �
 I:\OneDrive\OneDrive - Lion\【采购仓储】\【发货单】\【发票合并】\发票系统\发票合并系统_V<版本号>\
 ```
 
-沿用历史发布位置，新建版本目录，复制已验证的 `release/发票合并系统_V<版本号>/` 内容，再逐文件比对 SHA256。V1.1.21 已于 2026-11-17 复制并验证全部 9 个交付文件，实际从 OneDrive 新版本目录启动通过，[GitHub Release](https://github.com/mylife20250103-cell/FHZZ/releases/tag/v1.1.21) 已正式发布，附件校验通过。V1.1.20 的9个历史文件及 V1.1.19 的7个历史文件保留；V1.1.20 已注明启动问题和修复版入口。Git 推送、GitHub Release 和 OneDrive 文件发布是三个独立步骤；云端同步状态由 OneDrive 客户端负责。
+沿用历史发布位置，新建版本目录，复制已验证的 `release/发票合并系统_V<版本号>/` 内容，再逐文件比对 SHA256。V1.1.22 已于2026-11-18复制并验证全部9个交付文件，[GitHub Release](https://github.com/mylife20250103-cell/FHZZ/releases/tag/v1.1.22) 已正式发布并设为最新版本，附件校验通过。最终exe已实际启动，OneDrive副本与其字节一致；验证范围见发布记录。旧版本目录、标签和附件保留。Git 推送、GitHub Release 和 OneDrive 文件发布是三个独立步骤；云端同步状态由 OneDrive 客户端负责。
 
 ## Git
 
