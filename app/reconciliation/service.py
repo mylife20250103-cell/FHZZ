@@ -12,7 +12,7 @@ def _channel(value: str) -> str:
 
 
 def reconcile(scan: ScanResult, parsed: ParseResult) -> list[ReconciliationRow]:
-    """每份源文件一行；无法唯一关联的报数另外保留，绝不部分匹配。"""
+    """完整集合优先；迈创可按全部已列FBA唯一指向的发票辅助关联，按整票核算。"""
     index = defaultdict(list)
     fba_owners = defaultdict(set)
     for i, invoice in enumerate(scan.invoices):
@@ -25,14 +25,18 @@ def reconcile(scan: ScanResult, parsed: ParseResult) -> list[ReconciliationRow]:
     matched, extra = defaultdict(list), []
     for report in parsed.reports:
         candidates = index.get((report.carrier, report.fba_ids), [])
+        if not candidates and report.carrier == 'MC' and report.fba_ids:
+            # 所有已列FBA必须属于同一文件；任意相交、重量或消息顺序均不能作为关联依据。
+            owners = [fba_owners.get((report.carrier, fba), set()) for fba in report.fba_ids]
+            candidates = sorted(set.intersection(*owners))
         if len(candidates) > 1:
             ambiguous.update(candidates)
-            extra.append(ReconciliationRow(None, report, '匹配冲突', '多份文件具有同一完整FBA集合，请缩小目录或确认重复文件'))
+            extra.append(ReconciliationRow(None, report, '匹配冲突', '报数FBA同时指向多份文件，请缩小目录或确认重复文件'))
         elif len(candidates) == 1:
             matched[candidates[0]].append(report)
         else:
             status = '报数异常' if report.issues else '未匹配'
-            message = '；'.join(report.issues) if report.issues else '完整FBA集合未匹配；不会按单个FBA或消息顺序关联'
+            message = '；'.join(report.issues) if report.issues else '报数中列出的FBA未能全部对应同一份同货代发票，请核对号码和目录'
             extra.append(ReconciliationRow(None, report, status, message))
     rows = []
     for i, invoice in enumerate(scan.invoices):
@@ -56,8 +60,16 @@ def reconcile(scan: ScanResult, parsed: ParseResult) -> list[ReconciliationRow]:
                 rows.append(ReconciliationRow(invoice, report, '报数异常', '；'.join(report.issues)))
                 continue
             channel_differs = _channel(invoice.channel) != _channel(report.channel)
-            message = '渠道与发票不一致，请核实下单服务' if channel_differs else ''
+            unlisted = tuple(fba for fba in invoice.fba_ids if fba not in report.fba_ids)
+            match_method = '部分FBA辅助关联' if unlisted else '完整FBA匹配'
+            messages = []
+            if unlisted:
+                messages.append(f'部分FBA辅助关联：报数{len(report.fba_ids)}个FBA，'
+                    f'按发票全部{len(invoice.cartons)}箱核算；报数未列FBA：'+ '，'.join(unlisted))
+            if channel_differs:
+                messages.append('渠道与发票不一致，请核实下单服务')
             exceeds = report.billed_weight > invoice.approved_weight
             status = '需申请重测' if exceeds else ('渠道待核对' if channel_differs else '重量在允许范围')
-            rows.append(ReconciliationRow(invoice, report, status, message, exceeds))
+            rows.append(ReconciliationRow(invoice, report, status, '；'.join(messages), exceeds,
+                                          match_method, unlisted))
     return rows + extra

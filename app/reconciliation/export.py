@@ -14,7 +14,8 @@ from .invoices import NAME
 
 HEADERS = ['货代单号','所含FBA','仓库','货代','发票渠道','货代渠道','箱数',
            '实重合计(kg)','原体积重合计(kg)','公差体积重合计(kg)','仓库预估(kg)',
-           '核准上限(kg)','货代计费重(kg)','超限差额(kg)','核对结果','说明','源文件']
+           '核准上限(kg)','货代计费重(kg)','超限差额(kg)','核对结果','说明','源文件',
+           '关联方式','报数未列FBA']
 
 
 def row_values(row: ReconciliationRow) -> list:
@@ -27,7 +28,7 @@ def row_values(row: ReconciliationRow) -> list:
             inv.tolerance_volume if inv and inv.cartons else None,
             inv.estimated_weight if inv else None, inv.approved_weight if inv else None,
             reply.billed_weight if reply else None, row.difference, row.status, row.message,
-            str(inv.path) if inv else '']
+            str(inv.path) if inv else '', row.match_method, '\n'.join(row.unlisted_fbas)]
 
 
 def _write(sheet, row: int, values):
@@ -72,7 +73,8 @@ def export_results(rows: list[ReconciliationRow], destination: Path, *, raw_text
     _write(summary,2,['体积重系数',6000,'单边尺寸公差(cm)',2,'整票向上进位(kg)',1])
     _write(summary,3,['数据目录',str(source_directory)])
     _write(summary,4,['扫描时间',scanned_at,'导出时间',datetime.now().isoformat(timespec='seconds')])
-    _write(summary,5,['超限差额＝货代计费重－核准上限；完整集合匹配；仅总重量不能定位具体边长超差。'])
+    _write(summary,5,['超限差额＝货代计费重－核准上限；完整集合优先，迈创允许唯一部分FBA辅助关联；'
+                      '始终按发票全部货箱核算。仅总重量不能定位具体边长超差。'])
     _write(summary,6,HEADERS)
     for r, row in enumerate(rows,7):
         _write(summary,r,row_values(row))
@@ -94,7 +96,7 @@ def export_results(rows: list[ReconciliationRow], destination: Path, *, raw_text
     _write(raw,1,['原文行号','完整粘贴原文（含未匹配、异常和通知行）'])
     for r, line in enumerate(raw_text.splitlines(),2):
         _write(raw,r,[r-1,line])
-    _style(summary,6,[20,28,12,10,26,26,9,15,18,20,16,16,18,17,20,55,60])
+    _style(summary,6,[20,28,12,10,26,26,9,15,18,20,16,16,18,17,20,55,60,24,28])
     _style(boxes,1,[60,26,23,18,12,12,12,18,20,10,70])
     _style(raw,1,[12,120])
     destination.parent.mkdir(parents=True,exist_ok=True)

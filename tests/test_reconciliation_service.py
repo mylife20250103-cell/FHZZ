@@ -23,12 +23,118 @@ def test_exact_sets_reordered_and_rounding_boundary(tmp_path):
         assert len(rows)==1 and rows[0].needs_remeasure is expected
         assert rows[0].difference==D(billed)-41
         assert rows[0].status==('需申请重测' if expected else '重量在允许范围')
+        assert rows[0].match_method=='完整FBA匹配'
+        assert rows[0].unlisted_fbas==()
 
 
-def test_partial_intersection_cannot_match(tmp_path):
-    rows=reconcile(scanned(tmp_path),parse_reports('MC1(FBA1) 美速达快提卡派 10kg'))
-    assert {r.status for r in rows}=={'待货代报数','未匹配'}
-    assert not any(r.needs_remeasure for r in rows)
+@pytest.mark.parametrize('billed,remeasure', [(40,False),(41,False),(42,True)])
+def test_unique_partial_fbas_use_all_cartons_and_whole_ticket_rounding(tmp_path,billed,remeasure):
+    rows=reconcile(scanned(tmp_path),parse_reports(f'MC1(FBA1) 美速达快提卡派 {billed}kg'))
+    assert len(rows)==1
+    row=rows[0]
+    assert row.invoice.approved_weight==D(41)
+    assert len(row.invoice.cartons)==3
+    assert row.match_method=='部分FBA辅助关联'
+    assert row.unlisted_fbas==('FBA2','FBA3')
+    assert row.difference==D(billed)-41 and row.needs_remeasure is remeasure
+
+
+def test_unlisted_carton_real_weight_is_included(tmp_path):
+    write_mc(tmp_path/'MC_GYR3_4箱.xlsx',[
+        ('FBA1U000001',1,10,10,10),('FBA2U000001',1,10,10,10),
+        ('FBA3U000001',1,10,10,10),('FBA4U000001',60,10,10,10)])
+    row=reconcile(scan_directory(tmp_path),parse_reports('MC1(FBA1,FBA2,FBA3) 美速达快提卡派 63kg'))[0]
+    assert row.status=='重量在允许范围'
+    assert row.invoice.approved_weight==D(63) and row.difference==0
+    assert row.unlisted_fbas==('FBA4',)
+
+
+@pytest.mark.parametrize('add_other_file',[False,True])
+def test_every_reported_fba_must_belong_to_one_invoice(tmp_path,add_other_file):
+    scan=scanned(tmp_path)
+    if add_other_file:
+        write_mc(tmp_path/'MC_IND9_1箱.xlsx',[('FBA9U000001',8,30,30,30)],warehouse='IND9')
+        scan=scan_directory(tmp_path)
+    rows=reconcile(scan,parse_reports('MC1(FBA1,FBA9) 美速达快提卡派 42kg'))
+    assert sum(r.status=='未匹配' for r in rows)==1
+    assert all(r.status in {'待货代报数','未匹配'} and r.difference is None for r in rows)
+
+
+def test_partial_set_with_multiple_source_candidates_blocks_all(tmp_path):
+    write_mc(tmp_path/'MC_GYR3_2箱.xlsx',[
+        ('FBA1U000001',8,30,30,30),('FBA2U000001',9,30,30,30)])
+    write_mc(tmp_path/'MC_IND9_2箱.xlsx',[
+        ('FBA1U000001',8,30,30,30),('FBA3U000001',9,30,30,30)],warehouse='IND9')
+    rows=reconcile(scan_directory(tmp_path),parse_reports('MC1(FBA1) 美速达快提卡派 42kg'))
+    assert len(rows)==3
+    assert all(r.status=='匹配冲突' and r.difference is None and not r.needs_remeasure for r in rows)
+
+
+@pytest.mark.parametrize('second_fbas',['FBA2','FBA1,FBA2,FBA3'])
+def test_multiple_partial_or_exact_reports_cannot_split_one_invoice(tmp_path,second_fbas):
+    rows=reconcile(scanned(tmp_path),parse_reports(
+        f'MC1(FBA1) 美速达快提卡派 20kg\nMC2({second_fbas}) 美速达快提卡派 21kg'))
+    source=next(r for r in rows if r.invoice)
+    assert source.status=='匹配冲突'
+    assert all(r.difference is None and not r.needs_remeasure for r in rows)
+
+
+@pytest.mark.parametrize('source_error,billed,status',[
+    (True,'42','源数据异常'),(False,'0','报数异常')])
+def test_partial_association_preserves_source_and_report_validation(tmp_path,source_error,billed,status):
+    scan=scanned(tmp_path)
+    if source_error:
+        scan=replace(scan,invoices=(replace(scan.invoices[0],issues=('同箱尺寸冲突',)),))
+    rows=reconcile(scan,parse_reports(f'MC1(FBA1) 美速达快提卡派 {billed}kg'))
+    assert len(rows)==1 and rows[0].status==status
+    assert rows[0].report is not None and rows[0].difference is None and not rows[0].needs_remeasure
+
+
+def test_partial_matching_does_not_cross_carrier_or_enable_kyd_protocol(tmp_path):
+    scan=scanned(tmp_path)
+    other=replace(scan,invoices=(replace(scan.invoices[0],carrier='KYD'),))
+    parsed=parse_reports('MC1(FBA1) 美速达快提卡派 42kg')
+    assert {r.status for r in reconcile(other,parsed)}=={'待货代报数','未匹配'}
+    kyd=replace(parsed,reports=(replace(parsed.reports[0],carrier='KYD'),))
+    assert {r.status for r in reconcile(other,kyd)}=={'待货代报数','未匹配'}
+
+
+def test_repeated_order_on_disjoint_partial_invoices_blocks_both(tmp_path):
+    scanned(tmp_path)
+    write_mc(tmp_path/'MC_IND9_2箱.xlsx',[
+        ('FBA9U000001',8,30,30,30),('FBA10U000001',9,30,30,30)],warehouse='IND9')
+    rows=reconcile(scan_directory(tmp_path),parse_reports(
+        'MC1(FBA1) 美速达快提卡派 42kg\nMC1(FBA9) 美速达快提卡派 20kg'))
+    assert len(rows)==2
+    assert all(r.invoice and r.report and r.status=='报数异常' and r.difference is None
+               and not r.needs_remeasure for r in rows)
+
+
+def test_partial_channel_warning_does_not_hide_remeasurement(tmp_path):
+    row=reconcile(scanned(tmp_path),parse_reports('MC1(FBA2,FBA1) 美速达美东卡派 42kg'))[0]
+    assert row.needs_remeasure and row.status=='需申请重测'
+    assert '渠道' in row.message and 'FBA3' in row.message
+    assert row.unlisted_fbas==('FBA3',)
+
+
+def test_partial_export_preserves_whole_invoice_and_original_short_report(tmp_path):
+    scan=scanned(tmp_path)
+    raw='MC1(FBA1) 美速达快提卡派 42kg'
+    rows=reconcile(scan,parse_reports(raw))
+    p=export_results(rows,tmp_path/'辅助关联.xlsx',raw_text=raw,source_directory=scan.directory)
+    w=load_workbook(p,data_only=True)
+    try:
+        sheet=w['货件核对'];headers=[c.value for c in sheet[6]]
+        values={label:sheet.cell(7,i+1).value for i,label in enumerate(headers)}
+        assert values['关联方式']=='部分FBA辅助关联'
+        assert values['报数未列FBA']=='FBA2\nFBA3'
+        assert values['箱数']==3 and values['核准上限(kg)']==41
+        assert values['超限差额(kg)']==1
+        assert values['所含FBA']=='FBA1\nFBA2\nFBA3'
+        assert {w['货箱明细'].cell(r,3).value for r in range(2,5)}=={'FBA1','FBA2','FBA3'}
+        assert w['货代原文']['B2'].value==raw
+    finally:
+        w.close()
 
 
 def test_overlapping_source_boxes_across_history_cannot_pass(tmp_path):

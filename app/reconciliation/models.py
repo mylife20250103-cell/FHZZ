@@ -99,6 +99,8 @@ class ReconciliationRow:
     status: str
     message: str = ''
     needs_remeasure: bool = False
+    match_method: str = ''
+    unlisted_fbas: tuple[str, ...] = ()
 
     @property
     def difference(self) -> Decimal | None:

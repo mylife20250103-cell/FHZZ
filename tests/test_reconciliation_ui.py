@@ -48,6 +48,23 @@ def test_remeasure_filter_and_box_preview(panel,tmp_path):
     assert panel.table.rowCount()==1 and panel.visible_rows()[0].needs_remeasure
     panel.only_remeasure.setChecked(True)
     assert panel.table.rowCount()==1
+
+
+def test_partial_association_displays_omitted_fbas_and_filters_whole_ticket(panel,tmp_path):
+    from app.reconciliation.export import HEADERS
+    write_mc(tmp_path/'MC_GYR3_3箱.xlsx')
+    scan=scan_directory(tmp_path)
+    panel.accept_scan(scan)
+    text='MC1(FBA1) 美速达快提卡派 42kg'
+    parsed=parse_reports(text)
+    panel.accept_comparison((reconcile(scan,parsed),parsed,text))
+    assert panel.table.rowCount()==1
+    assert panel.table.item(0,HEADERS.index('关联方式')).text()=='部分FBA辅助关联'
+    assert panel.table.item(0,HEADERS.index('报数未列FBA')).text()=='FBA2\nFBA3'
+    assert panel.table.item(0,HEADERS.index('箱数')).text()=='3'
+    panel.only_remeasure.setChecked(True)
+    assert panel.table.rowCount()==1
+    assert panel.table.item(0,HEADERS.index('核准上限(kg)')).text()=='41.000'
     panel.report_edit.setPlainText('MC1(FBA1,FBA2,FBA3) 美速达快提卡派 41kg')
     parsed=parse_reports(panel.report_edit.toPlainText())
     panel.accept_comparison((reconcile(panel.scan,parsed),parsed,panel.report_edit.toPlainText()))

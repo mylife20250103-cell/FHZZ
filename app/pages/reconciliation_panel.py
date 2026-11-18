@@ -50,10 +50,15 @@ class ReconciliationPanel(QFrame):
         for button in (self.browse_button,self.scan_button): button.setObjectName('SecondaryButton')
         source.addWidget(self.browse_button); source.addWidget(self.scan_button)
         root.addLayout(source)
+        format_hint = QLabel('报数格式：MC单号(FBA列表) 渠道 整票最终计费重量kg，一票一行，多个FBA用逗号分隔。'
+                             '完整列表优先；迈创只列部分FBA时，须全部唯一对应同一份发票，按该发票全部货箱核算。')
+        format_hint.setObjectName('SecondaryText'); format_hint.setWordWrap(True)
+        root.addWidget(format_hint)
         self.report_edit = QPlainTextEdit()
-        self.report_edit.setPlaceholderText('粘贴迈创报数，例如：\n'
-            'MC010295345(FBA19W1Y2BQ0，FBA19W236CYF) 美速达快提卡派 39kg\n'
-            '支持多行，结尾通知会单独忽略。快越达文件可先读取预估。')
+        self.report_edit.setPlaceholderText('粘贴迈创报数，一票一行，例如：\n'
+            'MC010295347(FBA19W1YVXJ4) 美速达快提卡派 13kg\n'
+            'MC010295346(FBA19W1TNS6X，FBA19W1V6CBB，FBA19W12J9T1) 美速达美东卡派 50kg\n'
+            '部分FBA须唯一对应同一份发票，重量按整票。结尾通知单独忽略。快越达文件可先读取预估。')
         self.report_edit.setMinimumHeight(100); self.report_edit.setMaximumHeight(155)
         root.addWidget(self.report_edit)
         actions = QHBoxLayout()
@@ -77,11 +82,11 @@ class ReconciliationPanel(QFrame):
         self.table.setMinimumHeight(310)
         style_table(self.table)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        for c,width in enumerate([155,220,85,70,190,190,55,100,115,130,110,110,130,110,145,310,280]):
+        for c,width in enumerate([155,220,85,70,190,190,55,100,115,130,110,110,130,110,145,310,280,180,220]):
             self.table.setColumnWidth(c,width)
         # 正常桌面宽度先展示做判断所需的列，支持数据仍可横向展开。
         header = self.table.horizontalHeader()
-        for visual, logical in enumerate([0,2,1,11,12,13,14,6,5,4,7,8,9,10,15,16,3]):
+        for visual, logical in enumerate([0,2,1,11,12,13,14,17,6,5,18,4,7,8,9,10,15,16,3]):
             header.moveSection(header.visualIndex(logical),visual)
         root.addWidget(self.table)
         self._controls = [self.source_edit,self.browse_button,self.scan_button,
@@ -209,7 +214,7 @@ class ReconciliationPanel(QFrame):
         def job():
             parsed = parse_reports(text)
             return reconcile(scan,parsed), parsed, text
-        self.run_job(job,self.accept_comparison,'正在按货代和完整FBA集合核对…')
+        self.run_job(job,self.accept_comparison,'正在核对完整FBA集合及唯一部分FBA关联，按整票重量比较…')
 
     def accept_comparison(self, result):
         self.rows, parsed, self.result_text = result
@@ -217,8 +222,10 @@ class ReconciliationPanel(QFrame):
         remeasure = sum(r.needs_remeasure for r in self.rows)
         attention = sum(r.status not in {'重量在允许范围','待货代报数'} for r in self.rows)
         pending = sum(r.status=='待货代报数' for r in self.rows)
+        partial = sum(r.match_method=='部分FBA辅助关联' for r in self.rows)
         self.status.setText(f'识别报数 {len(parsed.reports)} 条，忽略通知/其他文字 {len(parsed.ignored_lines)} 行；'
-                            f'需重测 {remeasure} 票，待核对/异常 {attention} 行，待报数 {pending} 票。')
+                            f'部分FBA辅助关联 {partial} 票；需重测 {remeasure} 票，'
+                            f'待核对/异常 {attention} 行，待报数 {pending} 票。')
 
     def export_current(self):
         if self.busy or self.scan is None or not self.visible_rows():
