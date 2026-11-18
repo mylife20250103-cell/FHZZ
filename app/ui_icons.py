@@ -10,6 +10,7 @@ _PATHS = {
     "home": '<path d="M3 10 12 3l9 7M5 9v12h5v-7h4v7h5V9"/>',
     "inquiry": '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h3m-3 4h3m4-4h1m-1 4h1"/>',
     "invoice": '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8m-8 4h6"/>',
+    "reconciliation": '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3h6v4H9zM8 13l2 2 5-5m-7 8h8"/>',
     "customs": '<path d="M13 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12M13 3v6h7M13 3l7 6M8 13h4m-4 4h3m3 1 1-4 5-5 3 3-5 5z"/>',
     "tracking": '<path d="m12 3 9 5v9l-9 5-9-5V8zm-9 5 9 5 9-5m-9 5v9M7.5 5.5l9 5V15"/>',
     "watchlist": '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"/>',

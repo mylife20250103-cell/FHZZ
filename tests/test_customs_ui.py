@@ -82,12 +82,13 @@ def test_navigation_and_merge_handoff_are_wired_without_starting_old_services(pa
     class StubPage(QWidget):
         navigate_requested = Signal(str)
         content_merge_succeeded = Signal(object)
-    for name in ('HomePage', 'InquiryPage', 'InvoicePage', 'TrackingPage', 'WatchlistPage', 'BatchEditPage', 'SensitivePage', 'MaintainPage'):
+        def receive_merge(self,context):pass
+    for name in ('HomePage', 'InquiryPage', 'InvoicePage', 'ReconciliationPage', 'TrackingPage', 'WatchlistPage', 'BatchEditPage', 'SensitivePage', 'MaintainPage'):
         monkeypatch.setattr(module, name, StubPage)
     monkeypatch.setattr(module, 'CustomsPage', lambda: CustomsPage(state_path=tmp_path / 'main_state.json'))
     window = module.MainWindow()
     keys = list(window.nav_buttons)
-    assert keys[keys.index('invoice') + 1] == 'customs'
+    assert keys[keys.index('invoice') + 1:keys.index('invoice') + 3] == ['reconciliation','customs']
     folder = tmp_path / 'merged'
     folder.mkdir()
     window.pages['invoice'].content_merge_succeeded.emit({'directory': str(folder), 'carrier': 'KYD', 'country': 'US'})

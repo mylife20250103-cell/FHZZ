@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from app.pages.home_page import HomePage
 from app.pages.inquiry_page import InquiryPage
 from app.pages.invoice_page import InvoicePage
+from app.pages.reconciliation_page import ReconciliationPage
 from app.pages.customs_page import CustomsPage
 from app.pages.batch_edit_page import BatchEditPage
 from app.pages.sensitive_page import SensitivePage
@@ -79,6 +80,7 @@ class MainWindow(QMainWindow):
             ("home", "首页"),
             ("inquiry", "询价中心"),
             ("invoice", "发票中心"),
+            ("reconciliation", "货件数据核对"),
             ("customs", "发票报关修改"),
             ("tracking", "发货追踪"),
             ("watchlist", "重点追踪"),
@@ -150,6 +152,10 @@ class MainWindow(QMainWindow):
         self.pages["inquiry"] = InquiryPage()
 
         self.pages["invoice"] = InvoicePage()
+        self.pages["reconciliation"] = ReconciliationPage()
+        self.pages["invoice"].content_merge_succeeded.connect(
+            self.pages["reconciliation"].receive_merge
+        )
         self.pages["customs"] = CustomsPage()
         self.pages["invoice"].content_merge_succeeded.connect(
             self.pages["customs"].receive_merge
@@ -184,6 +190,11 @@ class MainWindow(QMainWindow):
         invoice = self.pages.get("invoice")
         invoice_can_close = getattr(invoice, "can_close", None)
         if invoice_can_close is not None and not invoice_can_close():
+            event.ignore()
+            return
+        reconciliation = self.pages.get("reconciliation")
+        reconciliation_can_close = getattr(reconciliation, "can_close", None)
+        if reconciliation_can_close is not None and not reconciliation_can_close():
             event.ignore()
             return
         customs = self.pages.get("customs")

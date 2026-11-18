@@ -83,7 +83,6 @@ from app.shipment_tracking.providers.nextsls import (
     portals_share_same_host,
 )
 from app.workers import TaskWorker
-from app.pages.reconciliation_panel import ReconciliationPanel
 
 
 class InvoicePage(QWidget):
@@ -692,10 +691,6 @@ class InvoicePage(QWidget):
 
         root.addWidget(order_card)
 
-        self.reconciliation_panel = ReconciliationPanel(self)
-        self.content_merge_succeeded.connect(self.reconciliation_panel.receive_merge)
-        root.addWidget(self.reconciliation_panel)
-
         scroll.setWidget(container)
         page_layout.addWidget(scroll)
 
@@ -713,9 +708,6 @@ class InvoicePage(QWidget):
         if start > end:
             start, end = end, start
         return start, end
-
-    def can_close(self) -> bool:
-        return self.reconciliation_panel.can_close()
 
     def date_id(self):
         return today_date_id()

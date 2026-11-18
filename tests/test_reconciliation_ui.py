@@ -143,21 +143,115 @@ def test_export_dialog_new_batch_cannot_change_the_export_snapshot(panel,tmp_pat
     w.close()
 
 
-def test_invoice_page_has_fifth_card_and_merge_signal_connection(tmp_path,monkeypatch):
+@pytest.fixture
+def main_window(tmp_path,monkeypatch):
     monkeypatch.setenv('QT_QPA_PLATFORM','offscreen')
-    from PySide6.QtWidgets import QApplication,QLabel
-    import app.pages.invoice_page as ui
+    from PySide6.QtCore import Signal
+    from PySide6.QtWidgets import QApplication,QWidget
+    import app.main_window as ui
+    import app.pages.invoice_page as invoice_ui
     app=QApplication.instance() or QApplication([])
-    monkeypatch.setattr(ui.InvoicePage,'restore_active_batch',lambda self:None)
-    monkeypatch.setattr(ui,'load_source_entries',lambda:[])
-    monkeypatch.setattr(ui,'portals_grouped_by_carrier',lambda:{})
-    page=ui.InvoicePage()
-    labels=[l for l in page.findChildren(QLabel) if l.text()=='5  货件数据核对']
-    assert len(labels)==1
-    calls=[];monkeypatch.setattr(page.reconciliation_panel,'start_scan',lambda:calls.append(True))
-    page.content_merge_succeeded.emit({'directory':str(tmp_path)})
-    assert page.reconciliation_panel.source_edit.text()==str(tmp_path) and calls
-    page.reconciliation_panel.set_busy(True)
-    assert not page.can_close()
-    page.reconciliation_panel.set_busy(False)
-    page.close();page.deleteLater();app.processEvents()
+    class UnrelatedPage(QWidget):
+        navigate_requested=Signal(str)
+        def receive_merge(self,context):pass
+        def can_close(self):return True
+    for name in ('HomePage','InquiryPage','CustomsPage','TrackingPage','WatchlistPage',
+                 'BatchEditPage','SensitivePage','MaintainPage'):
+        monkeypatch.setattr(ui,name,UnrelatedPage)
+    monkeypatch.setattr(invoice_ui.InvoicePage,'restore_active_batch',lambda self:None)
+    monkeypatch.setattr(invoice_ui,'load_source_entries',lambda:[])
+    monkeypatch.setattr(invoice_ui,'portals_grouped_by_carrier',lambda:{})
+    if hasattr(ui,'ReconciliationPage'):
+        original=ui.ReconciliationPage
+        monkeypatch.setattr(ui,'ReconciliationPage',lambda:original(directory=tmp_path))
+    window=ui.MainWindow()
+    yield window
+    from app.pages.reconciliation_panel import ReconciliationPanel
+    for widget in window.findChildren(ReconciliationPanel):
+        if widget.worker is not None:
+            widget.worker.wait(5000);app.processEvents()
+        widget.set_busy(False)
+    window.close();window.deleteLater();app.processEvents()
+
+
+def test_own_page_receives_merge_and_preserves_state_across_navigation(main_window,tmp_path):
+    from PySide6.QtCore import QElapsedTimer
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+    from app.pages.reconciliation_panel import ReconciliationPanel
+    window=main_window
+    keys=list(window.nav_buttons)
+    assert keys[keys.index('invoice')+1:keys.index('invoice')+3]==['reconciliation','customs']
+    page=window.pages['reconciliation'];panel=page.panel
+    assert not window.pages['invoice'].findChildren(ReconciliationPanel)
+    folder=tmp_path/'merged';folder.mkdir()
+    write_mc(folder/'MC_GYR3_3箱.xlsx')
+    window.pages['invoice'].content_merge_succeeded.emit({'directory':str(folder),'carrier':'MC'})
+    timer=QElapsedTimer();timer.start()
+    while panel.worker is not None and timer.elapsed()<5000:
+        QApplication.processEvents();QTest.qWait(10)
+    assert panel.worker is None and panel.scan.directory==folder.resolve()
+    assert len(panel.scan.invoices)==1
+    text='MC1(FBA1) 美速达快提卡派 42kg'
+    panel.report_edit.setPlainText(text)
+    parsed=parse_reports(text)
+    panel.accept_comparison((reconcile(panel.scan,parsed),parsed,text))
+    window.nav_buttons['reconciliation'].click()
+    assert window.stack.currentWidget() is page
+    window.go_to('invoice');window.go_to('reconciliation')
+    assert window.stack.currentWidget() is page and panel.report_edit.toPlainText()==text
+    assert panel.table.rowCount()==1 and panel.visible_rows()[0].needs_remeasure
+
+
+def test_busy_reconciliation_page_blocks_window_close_even_when_hidden(main_window):
+    from PySide6.QtGui import QCloseEvent
+    page=main_window.pages['reconciliation']
+    main_window.go_to('invoice');page.panel.set_busy(True)
+    event=QCloseEvent();main_window.closeEvent(event)
+    assert not event.isAccepted()
+    page.panel.set_busy(False)
+    event=QCloseEvent();main_window.closeEvent(event)
+    assert event.isAccepted()
+
+
+def test_remeasure_marker_survives_selection_and_clears_for_allowed_result(panel,tmp_path):
+    from PySide6.QtWidgets import QApplication,QLabel
+    from app.reconciliation.export import HEADERS
+    panel.resize(1400,900);panel.show()
+    scan=preview(panel,tmp_path);col=HEADERS.index('核对结果')
+    panel.table.selectRow(0);QApplication.processEvents()
+    badge=panel.table.cellWidget(0,col)
+    assert badge is not None
+    assert badge.findChild(QLabel,'RemeasureBadge').isVisible()
+    assert panel.table.item(0,col).text()=='需申请重测'
+    text='MC1(FBA1,FBA2,FBA3) 美速达快提卡派 41kg'
+    parsed=parse_reports(text)
+    panel.accept_comparison((reconcile(scan,parsed),parsed,text))
+    assert panel.table.cellWidget(0,col) is None
+    assert panel.table.item(0,col).text()=='重量在允许范围'
+    panel.only_remeasure.setChecked(True)
+    assert panel.table.rowCount()==0
+
+
+def test_double_click_on_remeasure_marker_still_opens_all_box_details(panel,tmp_path,monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication,QTableWidget
+    from app.reconciliation.export import HEADERS
+    import app.pages.reconciliation_panel as ui
+    panel.resize(1400,900);panel.show();preview(panel,tmp_path)
+    QApplication.processEvents()
+    observed=[]
+    def inspect(dialog):
+        table=dialog.findChild(QTableWidget)
+        observed.append([table.item(r,1).text() for r in range(table.rowCount())])
+        return 0
+    monkeypatch.setattr(ui.QDialog,'exec',inspect)
+    item=panel.table.item(0,HEADERS.index('核对结果'))
+    viewport=panel.table.viewport()
+    position=panel.table.visualItemRect(item).center()
+    # 离屏平台不提供全屏widgetAt，按真实子控件命中测试选择接收者。
+    target=viewport.childAt(position) or viewport
+    QTest.mouseClick(target,Qt.LeftButton,Qt.NoModifier,target.mapFrom(viewport,position))
+    QTest.mouseDClick(target,Qt.LeftButton,Qt.NoModifier,target.mapFrom(viewport,position))
+    assert observed==[['FBA1','FBA2','FBA3']]

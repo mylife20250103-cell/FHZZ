@@ -1,4 +1,4 @@
-"""发票中心第5块：独立的只读预估、货代文字核对及导出。"""
+"""货件核对面板：只读预估、货代文字核对及导出。"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -6,10 +6,11 @@ from decimal import Decimal
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
+    QAbstractItemView, QApplication, QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QTableWidget,
-    QTableWidgetItem, QVBoxLayout,
+    QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from app.invoice_config import LOCAL_TEMP_ROOT
@@ -19,6 +20,19 @@ from app.reconciliation.parser import parse_reports
 from app.reconciliation.service import reconcile
 from app.styles import style_table
 from app.workers import TaskWorker
+
+
+class _StatusBadgeDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        if index.data(Qt.UserRole) is True:
+            # 状态仍保存在item中供读取；红色标签负责显示，避免选中行时出现文字重影。
+            styled = QStyleOptionViewItem(option)
+            self.initStyleOption(styled, index)
+            styled.text = ''
+            style = styled.widget.style() if styled.widget else QApplication.style()
+            style.drawControl(QStyle.CE_ItemViewItem, styled, painter, styled.widget)
+        else:
+            super().paint(painter, option, index)
 
 
 class ReconciliationPanel(QFrame):
@@ -34,7 +48,7 @@ class ReconciliationPanel(QFrame):
         root = QVBoxLayout(self)
         root.setContentsMargins(18,16,18,16)
         root.setSpacing(10)
-        title = QLabel('5  货件数据核对')
+        title = QLabel('读取与核对')
         title.setObjectName('CardTitle')
         root.addWidget(title)
         hint = QLabel('每箱(长+2)×(宽+2)×(高+2)÷6000，整票体积重合计与实重合计取大，再向上取整到1kg。'
@@ -81,6 +95,19 @@ class ReconciliationPanel(QFrame):
         self.table.verticalHeader().setVisible(False)
         self.table.setMinimumHeight(310)
         style_table(self.table)
+        # 只给货件核对结果增加列分隔，不改变其他模块表格。
+        self.table.setObjectName('ReconciliationResults')
+        self.table.setShowGrid(True)
+        self.table.setGridStyle(Qt.SolidLine)
+        self.table.setStyleSheet('''
+            QTableWidget#ReconciliationResults { gridline-color:#CCD3DE; }
+            QTableWidget#ReconciliationResults QHeaderView::section {
+                border-right:1px solid #CCD3DE;
+                border-bottom:1px solid #CCD3DE;
+            }
+        ''')
+        self._status_delegate = _StatusBadgeDelegate(self.table)
+        self.table.setItemDelegateForColumn(14, self._status_delegate)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         for c,width in enumerate([155,220,85,70,190,190,55,100,115,130,110,110,130,110,145,310,280,180,220]):
             self.table.setColumnWidth(c,width)
@@ -124,6 +151,8 @@ class ReconciliationPanel(QFrame):
 
     def render_rows(self, *_):
         rows = self.visible_rows()
+        # 同行数的新结果也要清除旧状态标签，避免正常货件残留红色标记。
+        self.table.setRowCount(0)
         self.table.setRowCount(len(rows))
         for r, row in enumerate(rows):
             for c, value in enumerate(row_values(row)):
@@ -134,7 +163,30 @@ class ReconciliationPanel(QFrame):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.table.setItem(r,c,item)
             if row.needs_remeasure:
-                self.table.item(r,14).setForeground(Qt.darkRed)
+                self.table.item(r,14).setData(Qt.UserRole,True)
+                for c in range(self.table.columnCount()):
+                    self.table.item(r,c).setBackground(QColor('#FFF1F0'))
+                difference = self.table.item(r,13)
+                difference.setForeground(QColor('#B42318'))
+                font = difference.font(); font.setBold(True); difference.setFont(font)
+                # 使用子控件，选中行的全局样式不会覆盖重测标签；点击仍交给表格。
+                status_cell = QWidget()
+                status_cell.setAttribute(Qt.WA_TransparentForMouseEvents)
+                status_layout = QVBoxLayout(status_cell)
+                status_layout.setContentsMargins(8,4,8,4)
+                status_layout.addStretch()
+                badge = QLabel(row.status)
+                badge.setObjectName('RemeasureBadge')
+                badge.setAlignment(Qt.AlignCenter)
+                badge.setStyleSheet('''
+                    QLabel#RemeasureBadge {
+                        background:#B42318; color:#FFFFFF; font-weight:700;
+                        border-radius:5px; padding:6px 8px;
+                    }
+                ''')
+                status_layout.addWidget(badge)
+                status_layout.addStretch()
+                self.table.setCellWidget(r,14,status_cell)
         self.table.resizeRowsToContents()
         self.update_buttons()
 
