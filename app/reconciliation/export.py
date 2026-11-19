@@ -62,10 +62,11 @@ def _style(sheet, header_row: int, widths):
 
 def export_results(rows: list[ReconciliationRow], destination: Path, *, raw_text: str,
                    source_directory: Path, scanned_at: str = '', protected_paths=()) -> Path:
-    destination = Path(destination).with_suffix('.xlsx').resolve()
+    requested = Path(destination).resolve()
+    destination = requested.with_suffix('.xlsx')
     protected = {Path(p).resolve() for p in protected_paths}
     protected.update(r.invoice.path.resolve() for r in rows if r.invoice)
-    if destination in protected or NAME.fullmatch(destination.name):
+    if requested in protected or destination in protected or NAME.fullmatch(destination.name):
         raise ValueError('核对结果不得覆盖源发票，请另选文件名')
     w = Workbook(); summary = w.active; summary.title = '货件核对'
     boxes = w.create_sheet('货箱明细'); raw = w.create_sheet('货代原文')
@@ -73,7 +74,8 @@ def export_results(rows: list[ReconciliationRow], destination: Path, *, raw_text
     _write(summary,2,['体积重系数',6000,'单边尺寸公差(cm)',2,'整票向上进位(kg)',1])
     _write(summary,3,['数据目录',str(source_directory)])
     _write(summary,4,['扫描时间',scanned_at,'导出时间',datetime.now().isoformat(timespec='seconds')])
-    _write(summary,5,['超限差额＝货代计费重－核准上限；完整集合优先，迈创允许唯一部分FBA辅助关联；'
+    _write(summary,5,['超限差额＝货代计费重－核准上限；皓鹏整票最低21kg，其他货代原规则不变；'
+                      '完整集合优先，迈创/皓鹏允许唯一部分FBA辅助关联；'
                       '始终按发票全部货箱核算。仅总重量不能定位具体边长超差。'])
     _write(summary,6,HEADERS)
     for r, row in enumerate(rows,7):

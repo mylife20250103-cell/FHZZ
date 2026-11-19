@@ -12,7 +12,7 @@ def _channel(value: str) -> str:
 
 
 def reconcile(scan: ScanResult, parsed: ParseResult) -> list[ReconciliationRow]:
-    """完整集合优先；迈创可按全部已列FBA唯一指向的发票辅助关联，按整票核算。"""
+    """完整集合优先；迈创/皓鹏可按全部已列FBA唯一指向的发票辅助关联，按整票核算。"""
     index = defaultdict(list)
     fba_owners = defaultdict(set)
     for i, invoice in enumerate(scan.invoices):
@@ -25,7 +25,7 @@ def reconcile(scan: ScanResult, parsed: ParseResult) -> list[ReconciliationRow]:
     matched, extra = defaultdict(list), []
     for report in parsed.reports:
         candidates = index.get((report.carrier, report.fba_ids), [])
-        if not candidates and report.carrier == 'MC' and report.fba_ids:
+        if not candidates and report.carrier in {'MC', 'HP'} and report.fba_ids:
             # 所有已列FBA必须属于同一文件；任意相交、重量或消息顺序均不能作为关联依据。
             owners = [fba_owners.get((report.carrier, fba), set()) for fba in report.fba_ids]
             candidates = sorted(set.intersection(*owners))

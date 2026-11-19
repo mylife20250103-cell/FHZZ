@@ -52,7 +52,7 @@ class ReconciliationPanel(QFrame):
         title.setObjectName('CardTitle')
         root.addWidget(title)
         hint = QLabel('每箱(长+2)×(宽+2)×(高+2)÷6000，整票体积重合计与实重合计取大，再向上取整到1kg。'
-                      '货代最终计费重超过核准上限时申请重测。原发票只读。')
+                      '皓鹏整票最低计费21kg。货代最终计费重超过核准上限时申请重测。原发票只读。')
         hint.setObjectName('SecondaryText'); hint.setWordWrap(True)
         root.addWidget(hint)
         source = QHBoxLayout()
@@ -65,13 +65,16 @@ class ReconciliationPanel(QFrame):
         source.addWidget(self.browse_button); source.addWidget(self.scan_button)
         root.addLayout(source)
         format_hint = QLabel('报数格式：MC单号(FBA列表) 渠道 整票最终计费重量kg，一票一行，多个FBA用逗号分隔。'
-                             '完整列表优先；迈创只列部分FBA时，须全部唯一对应同一份发票，按该发票全部货箱核算。')
+                             '皓鹏可直接粘贴HPT单号/FBA列表及后续渠道、报关方式、收费重原文，支持跨行。'
+                             '完整列表优先；迈创/皓鹏部分FBA须全部唯一对应同一份同货代发票，按全部货箱核算。')
         format_hint.setObjectName('SecondaryText'); format_hint.setWordWrap(True)
         root.addWidget(format_hint)
         self.report_edit = QPlainTextEdit()
-        self.report_edit.setPlaceholderText('粘贴迈创报数，一票一行，例如：\n'
+        self.report_edit.setPlaceholderText('粘贴迈创报数或皓鹏多行原文，例如：\n'
             'MC010295347(FBA19W1YVXJ4) 美速达快提卡派 13kg\n'
             'MC010295346(FBA19W1TNS6X，FBA19W1V6CBB，FBA19W12J9T1) 美速达美东卡派 50kg\n'
+            'HPT12247356/FBA19XC954T9/FBA19XC954T9\n'
+            'D14787XJY小鲸渔XK-皓鹏 加拿大海运美转加合德/以星21日达-卡派按公斤 报关方式非单证报关 收费重159.00KG\n'
             '部分FBA须唯一对应同一份发票，重量按整票。结尾通知单独忽略。快越达文件可先读取预估。')
         self.report_edit.setMinimumHeight(100); self.report_edit.setMaximumHeight(155)
         root.addWidget(self.report_edit)
@@ -256,7 +259,7 @@ class ReconciliationPanel(QFrame):
         self.render_rows()
         errors = sum(bool(i.issues) for i in scan.invoices)
         self.status.setText(f'已读取 {len(scan.invoices)} 份发票，{errors} 份源数据异常。'
-            '粘贴货代报数后开始核对。' if scan.invoices else '未找到MC/KYD合并发票，请核对目录。')
+            '粘贴货代报数后开始核对。' if scan.invoices else '未找到MC/KYD合并发票或皓鹏成品发票，请核对目录。')
 
     def start_comparison(self):
         if self.busy or self.scan is None:

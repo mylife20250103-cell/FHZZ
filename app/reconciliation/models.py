@@ -37,10 +37,11 @@ class InvoiceEstimate:
     cartons: tuple[Carton, ...] = ()
     issues: tuple[str, ...] = ()
     sha256: str = ''
+    observed_fba_ids: tuple[str, ...] = ()
 
     @property
     def fba_ids(self) -> tuple[str, ...]:
-        return tuple(sorted({c.fba_id for c in self.cartons}))
+        return tuple(sorted({c.fba_id for c in self.cartons} | set(self.observed_fba_ids)))
 
     @property
     def total_real(self) -> Decimal:
@@ -64,7 +65,8 @@ class InvoiceEstimate:
     def approved_weight(self) -> Decimal | None:
         if self.issues or not self.cartons:
             return None
-        return max(self.total_real, self.tolerance_volume).to_integral_value(rounding=ROUND_CEILING)
+        minimum = Decimal(21) if self.carrier == 'HP' else Decimal(0)
+        return max(minimum, self.total_real, self.tolerance_volume).to_integral_value(rounding=ROUND_CEILING)
 
 
 @dataclass(frozen=True)
