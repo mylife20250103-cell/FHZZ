@@ -33,5 +33,5 @@ Interfaces: scan_directory(Path)->ScanResult；export_results(...)保持现有�
 ### Task 3: 验证、审阅、提交发布
 Files: app/version.py、InvoiceMergeSystem.spec、README及维护/操作/版本/发布文档。
 - [x] 完整pytest、原MC17票只读验证、HP样本集及UI验证；一次独立代码审阅，修正阻断问题。
-- [ ] 版本1.1.24、全新构建、最终exe启动检查、归档和校验、打包；提交源码并推送dev/v1.1.24。
-- [ ] GitHub正式发布及OneDrive新版本目录逐文件校验；补记交付记录提交，旧版本保留。
+- [x] 版本1.1.24、全新构建、最终exe启动检查、归档和校验、打包；提交源码并推送dev/v1.1.24。
+- [x] GitHub正式发布及OneDrive新版本目录逐文件校验；补记交付记录提交，旧版本保留。
