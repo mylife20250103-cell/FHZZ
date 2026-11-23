@@ -69,7 +69,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="发票合并系统_V1.1.24",
+    name="发票合并系统_V1.1.25",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

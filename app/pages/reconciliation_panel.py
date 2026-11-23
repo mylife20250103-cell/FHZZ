@@ -64,15 +64,15 @@ class ReconciliationPanel(QFrame):
         for button in (self.browse_button,self.scan_button): button.setObjectName('SecondaryButton')
         source.addWidget(self.browse_button); source.addWidget(self.scan_button)
         root.addLayout(source)
-        format_hint = QLabel('报数格式：MC单号(FBA列表) 渠道 整票最终计费重量kg，一票一行，多个FBA用逗号分隔。'
-                             '皓鹏可直接粘贴HPT单号/FBA列表及后续渠道、报关方式、收费重原文，支持跨行。'
+        format_hint = QLabel('按单号自动识别货代。迈创（MC）支持括号格式和“单号、FBA、渠道、计费重”四列格式，'
+                             '每票一行，多个FBA用逗号分隔。皓鹏（HPT）可直接粘贴多行报数原文。'
                              '完整列表优先；迈创/皓鹏部分FBA须全部唯一对应同一份同货代发票，按全部货箱核算。')
         format_hint.setObjectName('SecondaryText'); format_hint.setWordWrap(True)
         root.addWidget(format_hint)
         self.report_edit = QPlainTextEdit()
         self.report_edit.setPlaceholderText('粘贴迈创报数或皓鹏多行原文，例如：\n'
             'MC010295347(FBA19W1YVXJ4) 美速达快提卡派 13kg\n'
-            'MC010295346(FBA19W1TNS6X，FBA19W1V6CBB，FBA19W12J9T1) 美速达美东卡派 50kg\n'
+            'MC010295346    FBA19W1TNS6X，FBA19W1V6CBB，FBA19W12J9T1    美速达美东卡派    50kg\n'
             'HPT12247356/FBA19XC954T9/FBA19XC954T9\n'
             'D14787XJY小鲸渔XK-皓鹏 加拿大海运美转加合德/以星21日达-卡派按公斤 报关方式非单证报关 收费重159.00KG\n'
             '部分FBA须唯一对应同一份发票，重量按整票。结尾通知单独忽略。快越达文件可先读取预估。')

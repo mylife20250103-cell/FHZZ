@@ -57,6 +57,14 @@ def test_hp_wrapped_fields_and_mixed_mc_messages_stay_separate():
     assert parsed.reports[1].carrier == 'MC'
 
 
+def test_mc_columns_after_hp_block_use_mc_parser():
+    raw = hp_report(channel='MC1快线')+'\nMC1\tFBA8,FBA9\tHPT2 快提卡派\t33kg'
+    hp, mc = parse_reports(raw).reports
+    assert not hp.issues and hp.channel == 'MC1快线'
+    assert not mc.issues and mc.carrier == 'MC' and mc.fba_ids == ('FBA8','FBA9')
+    assert mc.channel == 'HPT2 快提卡派' and mc.billed_weight == D('33')
+
+
 @pytest.mark.parametrize('weight', ['0', '-1', 'NaN', 'Infinity', 'invalid', ''])
 def test_hp_invalid_weight_keeps_identity_and_blocks_duplicate_order(weight):
     parsed = parse_reports(hp_report(weight=weight)+'\n'+hp_report())

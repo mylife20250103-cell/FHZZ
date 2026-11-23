@@ -2,9 +2,9 @@
 
 面向多店铺 Amazon FBA 发货工作的 Windows 桌面程序，用于汇总物流询价、合并货代商业发票、查看发货和物流轨迹，以及批量修改渠道、检查敏感词。
 
-当前代码版本为 **v1.1.24**。业务数据、模板和公共配置主要放在公司 OneDrive，程序代码由 Git 管理。
+当前代码版本为 **v1.1.25**。业务数据、模板和公共配置主要放在公司 OneDrive，程序代码由 Git 管理。
 
-请使用 `发票合并系统_V1.1.24.exe`，本版新增皓鹏货件核对：读取官方成品.xls、粘贴HPT跨行原文、同票重复FBA去重，并采用整票最低21kg。独立核对页及重测重点标记、迈创部分FBA关联、报关修改、渠道规则和原发票合并方式保留；沿用V1.1.21的启动依赖修复。
+请使用 `发票合并系统_V1.1.25.exe`。货件数据核对可直接粘贴迈创四列报数，程序按单号自动采用迈创或皓鹏的报数规则。迈创每票一行，支持括号和四列格式。皓鹏支持HPT跨行原文，整票最低计费重21kg。
 
 迈创报数只列部分FBA时，所列FBA须全部唯一对应一份发票，重量仍按该票全部货箱核算，并显示关联方式与未列FBA。该行为自V1.1.22提供；V1.1.21仍使用原完整集合匹配。验证与交付状态见[V1.1.22发布记录](docs/releases/V1.1.22.md)。
 
@@ -20,6 +20,7 @@
 - [V1.1.22 部分FBA辅助关联](docs/releases/V1.1.22.md)：本次功能、真实批次核对和发布交付。
 - [V1.1.23 独立核对模块](docs/releases/V1.1.23.md)：独立入口、表格及重测标记优化与本次交付。
 - [V1.1.24 皓鹏货件核对](docs/releases/V1.1.24.md)：HPT原文、官方模板只读及21kg整票下限。
+- [V1.1.25 迈创四列报数](docs/releases/V1.1.25.md)：直接粘贴四列报数及批次验证记录。
 - [维护入口](AGENTS.md)：后续维护时先读取的项目约定。
 - [早期追踪调查](docs/shipment_tracking/current_system_map.md)：历史设计依据，部分结论已被后续实现替代。
 
@@ -72,7 +73,7 @@ py -3.11 -m venv .venv
 & .\.venv\Scripts\python.exe -m PyInstaller --noconfirm InvoiceMergeSystem.spec
 ```
 
-PyInstaller 未列入 `requirements.txt`；本机现有环境已安装。spec 在分析依赖前将构建 PATH 限定为当前 Python 和 Windows 系统目录，包自身 DLL 由 hook 收集，防止宿主工具的同名 ICU/OpenSSL 混入。当前产物位于 `dist/发票合并系统_V1.1.24.exe`，完整包位于 `release/发票合并系统_V1.1.24.zip`。发布前必须实际运行此 exe 并进入主界面，不能仅凭源码界面检查或构建成功判定可启动。验证结果及交付状态见[发布记录](docs/releases/V1.1.24.md)。
+PyInstaller 未列入 `requirements.txt`；本机现有环境已安装。spec 在分析依赖前将构建 PATH 限定为当前 Python 和 Windows 系统目录，包自身 DLL 由 hook 收集，防止宿主工具的同名 ICU/OpenSSL 混入。当前产物位于 `dist/发票合并系统_V1.1.25.exe`，完整包位于 `release/发票合并系统_V1.1.25.zip`。发布前必须实际运行此 exe 并进入主界面，不能仅凭源码界面检查或构建成功判定可启动。验证结果及交付状态见[发布记录](docs/releases/V1.1.25.md)。
 
 正式发版复制到公司 OneDrive 的版本目录：
 
@@ -84,6 +85,6 @@ I:\OneDrive\OneDrive - Lion\【采购仓储】\【发货单】\【发票合并�
 
 ## Git
 
-仓库远程地址：[mylife20250103-cell/FHZZ](https://github.com/mylife20250103-cell/FHZZ)。本次沿用 `dev` 分支并创建 `v1.1.24` 标签；`main` 仍保留较早版本，不作为本次发布来源。旧版本历史提交、标签与附件保留。
+仓库远程地址：[mylife20250103-cell/FHZZ](https://github.com/mylife20250103-cell/FHZZ)。本次沿用 `dev` 分支及 `v1.1.25` 标签；`main` 仍保留较早版本，不作为本次发布来源。旧版本历史提交、标签与附件保留。
 
 代码仓库与 OneDrive 业务数据需要分别保留。`dist/`、`release/`、`build/`、`.venv/`、`temp/` 和 `logs/` 当前被 Git 忽略，提交代码不会把这些内容一起备份。

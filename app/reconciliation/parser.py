@@ -7,12 +7,12 @@ from decimal import Decimal
 
 from .models import ForwarderReport, ParseResult
 
-REPORT = re.compile(
-    r'^(MC\d+)\s*\(([^()]*)\)\s*(.*?)\s*([-+]?\d+(?:\.\d+)?)\s*(?:kg|公斤|千克)[.,。]*$',
-    re.IGNORECASE,
-)
 FBA = re.compile(r'^FBA[A-Z0-9-]+$')
-
+MC_START = re.compile(r'^MC\d+(?=\s*\(|[ \t]+FBA)', re.IGNORECASE)
+MC_PARENS = re.compile(r'\s*\(([^()]*)\)')
+MC_COLUMNS = re.compile(r'[ \t]+([^\s,、;/()]+(?: *[,、;/]+ *[^\s,、;/()]+)*(?: *[,、;/]+)?)')
+MC_EXTRA_FBA = re.compile(r'(?:[ \t,、;/]+FBA[A-Z0-9-]+(?=[\s,、;/]|$))+', re.IGNORECASE)
+MC_WEIGHT = re.compile(r'(.*?)\s*([-+]?\d+(?:\.\d+)?)\s*(?:kg|公斤|千克)[.,。]*$', re.IGNORECASE)
 
 HP_HEADER = re.compile(r'^HPT\d+(?:\s*/\s*FBA[A-Z0-9-]+)+\s*$', re.IGNORECASE)
 HP_WEIGHT = re.compile(r'收费重\s*([-+]?\d+(?:\.\d+)?)\s*(?:kg|公斤|千克)[.,。]*$', re.IGNORECASE)
@@ -55,39 +55,51 @@ def _parse_hp(number: int, raw: str) -> ForwarderReport:
     return report
 
 
-def _parse_mc_lines(lines) -> list[ForwarderReport]:
-    reports = []
-    for number, raw in lines:
-        line = _normalize(raw)
-        report = ForwarderReport(number, raw)
-        # 格式错误也保留可识别身份，不能让坏重量绕过重复单号/FBA检查。
-        order_match = re.match(r'^(MC\d+)', line, re.IGNORECASE)
-        identity = re.match(r'^MC\d+\s*\(([^()]*)\)', line, re.IGNORECASE)
-        if order_match:
-            report.order_number = order_match.group(1).upper()
-        if identity:
-            report.fba_ids = tuple(sorted(set(t.upper() for t in
-                re.split(r'[,、;\s]+', identity.group(1).strip()) if t)))
-        match = REPORT.fullmatch(line)
-        if not match:
-            report.issues.append('报数格式或重量无效，需要 MC单号(FBA列表) 渠道 正数kg')
-        else:
-            order, fbas, channel, weight = match.groups()
-            report.order_number = order.upper()
-            tokens = tuple(t.upper() for t in re.split(r'[,、;\s]+', fbas.strip()) if t)
-            report.fba_ids = tuple(sorted(set(tokens)))
-            report.channel = channel.strip()
-            report.billed_weight = Decimal(weight)
-            if not tokens or any(not FBA.fullmatch(t) or re.search(r'U\d{6}$', t) for t in tokens):
-                report.issues.append('FBA列表无效，请填写FBA号而非带U箱序号的完整箱号')
-            if len(tokens) != len(set(tokens)):
-                report.issues.append('同一行FBA重复')
-            if not report.channel:
-                report.issues.append('渠道为空')
-            if not report.billed_weight.is_finite() or report.billed_weight <= 0:
-                report.issues.append('计费重量必须为大于0的有效数字')
-        reports.append(report)
-    return reports
+def _parse_mc(number: int, raw: str, line: str) -> ForwarderReport:
+    report = ForwarderReport(number, raw)
+    order = re.match(r'^MC\d+', line, re.IGNORECASE)
+    if order:
+        report.order_number = order.group().upper()
+    details = line[order.end():] if order else ''
+    parentheses = MC_PARENS.match(details)
+    identity = parentheses or MC_COLUMNS.match(details)
+    if not identity:
+        report.issues.append('迈创报数需要单号、FBA、渠道和计费重，支持括号或四列格式')
+        return report
+
+    fbas = identity.group(1).strip().upper()
+    body = details[identity.end():]
+    if parentheses:
+        tokens = [token for token in re.split(r'[,、;\s]+', fbas) if token]
+    else:
+        tokens = [token.strip() for token in re.split(r'[,、;/]', fbas)]
+        extra = MC_EXTRA_FBA.match(body)
+        if '/' in fbas or extra or (body and not body[0].isspace()):
+            report.issues.append('迈创四列格式的多个FBA应放在同一列，用逗号分隔')
+        if extra:
+            tokens.extend(re.findall(r'FBA[A-Z0-9-]+', extra.group().upper()))
+            body = body[extra.end():]
+
+    # 坏格式也保留可读FBA，避免重复报数绕过冲突检查。
+    report.fba_ids = tuple(sorted({token for token in tokens if FBA.fullmatch(token)}))
+    if not tokens or any(not FBA.fullmatch(token) or re.search(r'U\d{6}$', token) for token in tokens):
+        report.issues.append('FBA列表无效，请填写FBA号而非带U箱序号的完整箱号')
+    if len(tokens) != len(set(tokens)):
+        report.issues.append('同一行FBA重复')
+
+    weight = MC_WEIGHT.fullmatch(body.strip())
+    if weight:
+        report.channel = weight.group(1).strip()
+        report.billed_weight = Decimal(weight.group(2))
+        if not report.channel:
+            report.issues.append('渠道为空')
+        elif not parentheses and '\t' in report.channel:
+            report.issues.append('迈创四列格式含多余列，请核对渠道和计费重')
+        if report.billed_weight <= 0:
+            report.issues.append('计费重量必须为大于0的有效数字')
+    else:
+        report.issues.append('计费重量缺失或无效，请填写正数及kg单位')
+    return report
 
 
 def parse_reports(text: str) -> ParseResult:
@@ -109,9 +121,9 @@ def parse_reports(text: str) -> ParseResult:
             flush_hp()
             start = number
             pending.append(raw)
-        elif re.match(r'^MC\d+\s*\(', line, re.IGNORECASE):
+        elif MC_START.match(line):
             flush_hp()
-            reports.extend(_parse_mc_lines([(number, raw)]))
+            reports.append(_parse_mc(number, raw, line))
         elif pending and not HP_NOTICE.match(line):
             last = next((_normalize(part) for part in reversed(pending) if _normalize(part)), '')
             if (HP_WEIGHT.search(last)
@@ -123,7 +135,7 @@ def parse_reports(text: str) -> ParseResult:
         else:
             flush_hp()
             if re.search(r'\bMC\d', line, re.IGNORECASE):
-                reports.extend(_parse_mc_lines([(number,raw)]))
+                reports.append(_parse_mc(number, raw, line))
             elif re.search(r'\bHPT\d', line, re.IGNORECASE):
                 reports.append(_parse_hp(number,raw))
             else:

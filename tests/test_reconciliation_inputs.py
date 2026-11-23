@@ -47,6 +47,35 @@ def test_fullwidth_parentheses_uppercase_units_and_no_space_before_weight():
     assert r.channel == '美速达快提卡派'
 
 
+@pytest.mark.parametrize('line,fbas,channel,weight', [
+    ('MC010301427\tFBA19XX52387\t美速达快提卡派\t18kg', ('FBA19XX52387',), '美速达快提卡派', '18'),
+    ('MC010301432\tFBA19XWXW7SN,FBA19XWSNJ9K\t美速达美东卡派\t33kg',
+     ('FBA19XWSNJ9K','FBA19XWXW7SN'), '美速达美东卡派', '33'),
+    ('MC123  FBA1， FBA2  快提 卡派 HPT8  21.50 KG', ('FBA1','FBA2'), '快提 卡派 HPT8', '21.50'),
+])
+def test_mc_column_format_preserves_identity_channel_weight_and_original_line(line,fbas,channel,weight):
+    parsed = parse_reports('货代单号\tFBA\t渠道\t重量\n'+line+'\n您好，数据已出。')
+    assert len(parsed.ignored_lines) == 2
+    report, = parsed.reports
+    assert not report.issues and report.carrier == 'MC'
+    assert report.fba_ids == fbas and report.channel == channel and report.billed_weight == D(weight)
+    assert report.raw_text == line and report.line_number == 2
+
+
+@pytest.mark.parametrize('columns', [
+    'FBA1\t渠道\t错误重量', 'FBA1\t渠道\t-1kg', 'FBA1\t\t33kg',
+    'FBA1,FBA1\t渠道\t33kg', 'FBA1,WRONG\t渠道\t33kg',
+    'FBA1 FBA2 渠道 33kg', 'FBA1,,FBA2 渠道 33kg',
+    'FBA1/FBA2\t渠道\t33kg', 'FBA1 / FBA2 渠道 33kg', 'FBA1\t渠道\t44kg\t33kg',
+])
+def test_bad_mc_columns_keep_readable_fba_for_duplicate_detection(columns):
+    bad = 'MC1\t'+columns
+    report, = parse_reports(bad).reports
+    assert report.issues and 'FBA1' in report.fba_ids
+    parsed = parse_reports(bad+'\nMC2(FBA1) 渠道 33kg')
+    assert all(any('FBA跨报数重复' in issue for issue in row.issues) for row in parsed.reports)
+
+
 @pytest.mark.parametrize('line', [
     'MC1(FBA1) 渠道 -1kg', 'MC1(FBA1) 渠道 0kg', 'MC1(FBA1) 渠道 NaNkg',
     'MC1(FBA1,FBA1) 渠道 39kg', 'MC1(FBA1U000001) 渠道 39kg',
